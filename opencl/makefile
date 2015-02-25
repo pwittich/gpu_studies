@@ -1,4 +1,3 @@
-CC=clang
 CFLAGS=-O3
 CXXFLAGS=-O3
 

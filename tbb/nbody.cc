@@ -5,88 +5,90 @@
 #include <cmath>
 #include <vector>
 #include <algorithm>
+#include <numeric>
+#include <list>
 
 #include "tbb/tbb.h"
 using namespace tbb;
 
-class float4 {
+class float4_t {
  public:
   float x,y,z,w;
-  float4 operator+=(const float4 & rhs ) {
+  float4_t operator+=(const float4_t & rhs ) {
     this->x += rhs.x;
     this->y += rhs.y;
     this->z += rhs.z;
     this->w += rhs.w;
     return *this ;
   }
-   float4 operator+( const float4 & rhs ) const {
-    float4 tmp = *this;
+   float4_t operator+( const float4_t & rhs ) const {
+    float4_t tmp = *this;
     tmp += rhs;
     return tmp;
   }
-  float4 operator-=(const float4 & rhs ) {
+  float4_t operator-=(const float4_t & rhs ) {
     this->x -= rhs.x;
     this->y -= rhs.y;
     this->z -= rhs.z;
     this->w -= rhs.w;
     return *this ;
   }
-  float4 operator-( const float4 & rhs )  const {
-    float4 tmp = *this;
+  float4_t operator-( const float4_t & rhs )  const {
+    float4_t tmp = *this;
     tmp -= rhs;
     return tmp;
   }
-  float4 operator*=(const float4 & rhs ) {
+  float4_t operator*=(const float4_t & rhs ) {
     this->x *= rhs.x;
     this->y *= rhs.y;
     this->z *= rhs.z;
     this->w *= rhs.w;
     return *this ;
   }
-  float4 operator*(const float4 & rhs ) const {
-    float4 tmp = *this;
+  float4_t operator*(const float4_t & rhs ) const {
+    float4_t tmp = *this;
     tmp *= rhs;
     return tmp;
   }
 
-  float4 operator*=(const float & rhs) {
+  float4_t operator*=(const float & rhs) {
     this->x *= rhs;
     this->y *= rhs;
     this->z *= rhs;
     this->w *= rhs;
     return *this ;
   }
-  float4 operator*(const float & rhs) const {
-    float4 tmp = *this;
+  float4_t operator*(const float & rhs) const {
+    float4_t tmp = *this;
     tmp *= rhs;
     return tmp;
   }
     
- float4(float ax, float ay, float az, float aw) :
+ float4_t(float ax, float ay, float az, float aw) :
   x(ax), y(ay), z(az), w(aw)
   {}
 };
 
-float4 operator*(const float & lhs, const float4 & rhs ) {
-  float4 tmp=rhs;
+float4_t operator*(const float & lhs, const float4_t & rhs ) {
+  float4_t tmp=rhs;
   tmp *= lhs;
   return tmp;
 }
 
 void update_particle(const size_t i, const size_t nparticle, 
-		     const std::vector<float4> * pos_old,
-		     std::vector<float4> * pos_new, 
-		     std::vector<float4> * vel)
+		     const std::vector<float4_t> * pos_old,
+		     std::vector<float4_t> * pos_new, 
+		     std::vector<float4_t> * vel)
 {
   const float dt = 0.1;
-  const float4 dt0(dt,dt,dt,0.0f);
+  const float4_t dt0(dt,dt,dt,0.0f);
   const float eps = 0.0001;
-  float4 p = (*pos_old)[i];
-  float4 v = (*vel)[i];
-  float4 a = float4(0.0f,0.0f,0.0f,0.0f);
+  float4_t p = (*pos_old)[i];
+  float4_t v = (*vel)[i];
+  float4_t a = float4_t(0.0f,0.0f,0.0f,0.0f);
   for(int j=0; j<nparticle; j++) { // inner loop over particles
-     const float4 p2 = (*pos_old)[j]; //Read a cached particle position */
-     float4 d = p2 - p;
+     const float4_t p2 = (*pos_old)[j]; //Read a cached particle position */
+     float4_t d = p2 - p;
      float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
      float f = p2.w*invr*invr*invr;
      a += f*d; // Accumulate acceleration 
@@ -100,18 +102,43 @@ void update_particle(const size_t i, const size_t nparticle,
   
 }
 
-typedef std::vector<float4> float4s;
+typedef std::vector<float4_t> float4_ts;
 
-class functor {
+class functor_serial {
 private:
-   const float4s * p_pos_old;
-   float4s * p_pos_new;
-   float4s * p_vel; 
+   const float4_ts * p_pos_old;
+   float4_ts * p_pos_new;
+   float4_ts * p_vel; 
    int nparticle;
 public:
-   functor(   const float4s * pos_old,
-	      float4s * pos_new,
-	      float4s * vel,
+   functor_serial(   const float4_ts * pos_old,
+	      float4_ts * pos_new,
+	      float4_ts * vel,
+	      int n):
+      p_pos_old(pos_old),
+      p_pos_new(pos_new),
+      p_vel(vel),
+      nparticle(n)
+   {}
+
+   
+   void operator()(const int i) const 
+   {
+     update_particle(i, nparticle, p_pos_old, p_pos_new, p_vel);
+   }
+
+};
+
+class functor_tbb {
+private:
+   const float4_ts * p_pos_old;
+   float4_ts * p_pos_new;
+   float4_ts * p_vel; 
+   int nparticle;
+public:
+   functor_tbb(   const float4_ts * pos_old,
+	      float4_ts * pos_new,
+	      float4_ts * vel,
 	      int n):
       p_pos_old(pos_old),
       p_pos_new(pos_new),
@@ -126,6 +153,7 @@ public:
 	 update_particle(i, nparticle, p_pos_old, p_pos_new, p_vel);
       }
    }
+
 };
 
 
@@ -143,37 +171,41 @@ int main()
 
   // create arrays
 
-  float4s pos1, pos2, vel;
+  float4_ts pos1, pos2, vel;
+  std::list<int> parts(nparticle);
+  std::iota(parts.begin(), parts.end(), 0);
   pos1.reserve(nparticle);
   pos2.reserve(nparticle);
   vel. reserve(nparticle);
   
-  const float4 dt0(dt,dt,dt,0.0f);
+  
+  const float4_t dt0(dt,dt,dt,0.0f);
 
   for ( int i = 0; i < nparticle; ++i ){
-    pos1.push_back(float4(0.f,0.f,0.f,0.f));
+    pos1.push_back(float4_t(0.f,0.f,0.f,0.f));
     pos1[i].x = (float)rand()/RAND_MAX * 100. - 50.;
     pos1[i].y = (float)rand()/RAND_MAX * 100. - 50.;
     pos1[i].z = (float)rand()/RAND_MAX * 100. - 50.;
     pos1[i].w = (float)rand()/RAND_MAX * 10.; // mass
-    pos2.push_back(float4(0.f,0.f,0.f,0.f));
-    vel. push_back(float4(0.f,0.f,0.f,0.f));
+    pos2.push_back(float4_t(0.f,0.f,0.f,0.f));
+    vel. push_back(float4_t(0.f,0.f,0.f,0.f));
   }
 
   int which = 8;
 
-  float4 startpos = pos1[which];
+  float4_t startpos = pos1[which];
 
   printf("Start: particle %d x=%f, y=%f, z=%f, m=%f\n",
 	 which, pos1[which].x, pos1[which].y, pos1[which].z, pos1[which].w);
   
   // start iterating
   //t0 = t1 = mach_absolute_time();
+  // loop over time steps
   for ( int istep = 0; istep<nstep; ++istep ) {
     printf("istep = %d,",istep);
 
-    float4s * pos_new,  * pos_old;
-    //const float4s * pos_new,  * pos_old;
+    float4_ts * pos_new,  * pos_old;
+    //const float4_ts * pos_new,  * pos_old;
     if ( istep%2==1 ) {
       pos_new = &pos1;
       pos_old = &pos2;
@@ -185,29 +217,13 @@ int main()
     printf("particle %d x=%f, y=%f, z=%f, m=%f\n",
 	   which, (*pos_old)[which].x, (*pos_old)[which].y, (*pos_old)[which].z, (*pos_old)[which].w);
 
-    for ( int i = 0; i < nparticle; ++i ) { // outer loop over particles
-      // if ( i%2000 == 0 ) 
-      // 	printf("particle = %d\n", i);
-      float4 p = (*pos_old)[i];
-      float4 v = vel[i];
-      float4 a = float4(0.0f,0.0f,0.0f,0.0f);
-      for(int j=0; j<nparticle; j++) { // inner loop over particles
-    	float4 p2 = (*pos_old)[j]; //Read a cached particle position */
-    	float4 d = p2 - p;
-    	float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
-    	float f = p2.w*invr*invr*invr;
-    	a += f*d; // Accumulate acceleration 
-      }
-
-      p += dt0*v + 0.5f*dt0*dt0*a;
-      v += dt0*a;
-
-      (*pos_new)[i] = p;
-      vel[i] = v;
-      //update_particle(i,nparticle, pos_old, pos_new, &vel);
-    }
+    // for ( int i = 0; i < nparticle; ++i ) { // outer loop over particles
+    //   update_particle(i,nparticle, pos_old, pos_new, &vel);
+    // }
+    std::for_each(parts.begin(), parts.end(), functor_serial(pos_old, pos_new, &vel,nparticle));
+    
     // tbb::parallel_for(blocked_range<size_t>(0,nparticle),
-    //  		      functor(pos_old, pos_new, &vel,nparticle));
+    //  		      functor_tbb(pos_old, pos_new, &vel,nparticle));
 
   }
 
@@ -220,12 +236,12 @@ int main()
   // printf("Time spent = %g\n", t);
 
 
-  float4 endpos = pos1[which];
+  float4_t endpos = pos1[which];
 
   printf("End:   particle %d x=%f, y=%f, z=%f, m=%f\n",
 	 which, pos1[which].x, pos1[which].y, pos1[which].z, pos1[which].w);
 
-  float4 sep = endpos-startpos;;
+  float4_t sep = endpos-startpos;;
   float distance = sqrt(sep.x*sep.x + sep.y*sep.y + sep.z*sep.z);
   printf("Distance travelled = %g\n", distance);
 
