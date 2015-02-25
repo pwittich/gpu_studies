@@ -186,28 +186,28 @@ int main()
 	   which, (*pos_old)[which].x, (*pos_old)[which].y, (*pos_old)[which].z, (*pos_old)[which].w);
 
     for ( int i = 0; i < nparticle; ++i ) { // outer loop over particles
-    //   // if ( i%2000 == 0 ) 
-    //   // 	printf("particle = %d\n", i);
-    //   float4 p = (*pos_old)[i];
-    //   float4 v = vel[i];
-    //   float4 a = float4(0.0f,0.0f,0.0f,0.0f);
-    //   for(int j=0; j<nparticle; j++) { // inner loop over particles
-    // 	float4 p2 = (*pos_old)[j]; //Read a cached particle position */
-    // 	float4 d = p2 - p;
-    // 	float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
-    // 	float f = p2.w*invr*invr*invr;
-    // 	a += f*d; // Accumulate acceleration 
-    //   }
+      // if ( i%2000 == 0 ) 
+      // 	printf("particle = %d\n", i);
+      float4 p = (*pos_old)[i];
+      float4 v = vel[i];
+      float4 a = float4(0.0f,0.0f,0.0f,0.0f);
+      for(int j=0; j<nparticle; j++) { // inner loop over particles
+    	float4 p2 = (*pos_old)[j]; //Read a cached particle position */
+    	float4 d = p2 - p;
+    	float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
+    	float f = p2.w*invr*invr*invr;
+    	a += f*d; // Accumulate acceleration 
+      }
 
-    //   p += dt0*v + 0.5f*dt0*dt0*a;
-    //   v += dt0*a;
+      p += dt0*v + 0.5f*dt0*dt0*a;
+      v += dt0*a;
 
-    //   (*pos_new)[i] = p;
-    //   vel[i] = v;
-      update_particle(i,nparticle, pos_old, pos_new, &vel);
+      (*pos_new)[i] = p;
+      vel[i] = v;
+      //update_particle(i,nparticle, pos_old, pos_new, &vel);
     }
-    tbb::parallel_for(blocked_range<size_t>(0,nparticle),
-		      functor(pos_old, pos_new, &vel,nparticle));
+    // tbb::parallel_for(blocked_range<size_t>(0,nparticle),
+    //  		      functor(pos_old, pos_new, &vel,nparticle));
 
   }
 
@@ -228,6 +228,12 @@ int main()
   float4 sep = endpos-startpos;;
   float distance = sqrt(sep.x*sep.x + sep.y*sep.y + sep.z*sep.z);
   printf("Distance travelled = %g\n", distance);
+
+  //dump
+  for ( size_t i = 0; i < nparticle; ++i ) {
+    printf("Final: particle %d x=%f, y=%f, z=%f, m=%f\n",
+	 i, pos1[i].x, pos1[i].y, pos1[i].z, pos1[i].w);
+  }
 
 
   return 0;
