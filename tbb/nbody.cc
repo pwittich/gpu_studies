@@ -161,7 +161,7 @@ int main()
 {
   uint64_t        t0, t1, t2;
   int nparticle = 2*8192; /* MUST be a nice power of two for simplicity */
-  const int nstep = 5;
+  const int nstep = 500;
   //int nburst = 20; /* MUST divide the value of nstep without remainder */
   //int nthread = 64; /* chosen for ATI Radeon HD 5870 */
 
@@ -220,10 +220,13 @@ int main()
     // for ( int i = 0; i < nparticle; ++i ) { // outer loop over particles
     //   update_particle(i,nparticle, pos_old, pos_new, &vel);
     // }
-    std::for_each(parts.begin(), parts.end(), functor_serial(pos_old, pos_new, &vel,nparticle));
+    //std::for_each(parts.begin(), parts.end(), functor_serial(pos_old, pos_new, &vel,nparticle));
     
-    // tbb::parallel_for(blocked_range<size_t>(0,nparticle),
-    //  		      functor_tbb(pos_old, pos_new, &vel,nparticle));
+    tbb::parallel_for(blocked_range<size_t>(0,nparticle),
+      		      functor_tbb(pos_old, pos_new, &vel,nparticle));
+
+
+
 
   }
 
