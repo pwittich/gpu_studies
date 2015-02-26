@@ -1,7 +1,6 @@
 // -*-c++-*-
 #include <cstdio>
 #include <cstdlib>
-//#include <mach/mach_time.h>
 #include <cmath>
 #include <vector>
 #include <algorithm>
@@ -10,6 +9,37 @@
 
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
+
+
+float4
+__device__ __host__ operator*(const float4 a, const float4 b)
+{
+  return make_float4(a.x*b.x, a.y*b.y, a.z*b.z, a.w*b.w);
+}
+float4
+__device__ __host__ operator-(const float4 a, const float4 b)
+{
+  return make_float4(a.x-b.x, a.y-b.y, a.z-b.z, a.w-b.w);
+}
+
+float4
+__device__ __host__ operator*(const float a, const float4 b)
+{
+  return make_float4(a*b.x, a*b.y, a*b.z, a*b.w);
+}
+
+float4
+__device__ __host__ operator+=(const float4 a, float4 b)
+{
+  b = make_float4(a.x+b.x, a.y+b.y, a.z+b.z, a.w+b.w);
+  return b;
+}
+
+float4
+__device__ __host__ operator+(const float4 a, const float4 b)
+{
+  return make_float4(a.x+b.x, a.y+b.y, a.z+b.z, a.w+b.w);
+}
 
 using namespace thrust;
 
@@ -77,86 +107,68 @@ float4_t operator*(const float & lhs, const float4_t & rhs ) {
   return tmp;
 }
 
-__host__ __device__
+// void update_particle(const size_t i, //const size_t nparticle, 
+// 		     const thrust::device_vector<float4> * pos_old,
+// 		     thrust::device_vector<float4> * pos_new, 
+// 		     thrust::device_vector<float4> * vel)
+__device__
 void update_particle(const size_t i, const size_t nparticle, 
-		     const std::vector<float4_t> * pos_old,
-		     std::vector<float4_t> * pos_new, 
-		     std::vector<float4_t> * vel)
+		     const float4* pos_old,
+		     float4 * pos_new, 
+		     float4 * vel)
 {
   const float dt = 0.1;
-  const float4_t dt0(dt,dt,dt,0.0f);
+  const float4 dt0 =make_float4(dt,dt,dt,0.0f);
   const float eps = 0.0001;
-  float4_t p = (*pos_old)[i];
-  float4_t v = (*vel)[i];
-  float4_t a = float4_t(0.0f,0.0f,0.0f,0.0f);
-  for(int j=0; j<nparticle; j++) { // inner loop over particles
-     const float4_t p2 = (*pos_old)[j]; //Read a cached particle position */
-     float4_t d = p2 - p;
-     float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
-     float f = p2.w*invr*invr*invr;
-     a += f*d; // Accumulate acceleration 
+  float4 p = pos_old[i];
+  float4 v = vel[i];
+  float4 a = make_float4(0.0f,0.0f,0.0f,0.0f);
+  // does this include self-interaction?
+  for(size_t i = 0; i < nparticle; ++i  ) { // inner loop over particles
+    const float4 p2 = pos_old[i]; //Read a particle position 
+    float4 d = p2 - p;
+    float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
+    float f = p2.w*invr*invr*invr;
+    a += f*d; // Accumulate acceleration 
   }
   
   p += dt0*v + 0.5f*dt0*dt0*a;
   v += dt0*a;
   
-  (*pos_new)[i] = p;
-  (*vel)[i] = v;
+  pos_new[i] = p;
+  vel[i] = v;
   
 }
 
-typedef std::vector<float4_t> float4_ts;
-
-class functor_serial {
-private:
-   const float4_ts * p_pos_old;
-   float4_ts * p_pos_new;
-   float4_ts * p_vel; 
-   int nparticle;
-public:
-   functor_serial(   const float4_ts * pos_old,
-	      float4_ts * pos_new,
-	      float4_ts * vel,
-	      int n):
-      p_pos_old(pos_old),
-      p_pos_new(pos_new),
-      p_vel(vel),
-      nparticle(n)
-   {}
-
-   
-   void operator()(const int i) const 
-   {
-     update_particle(i, nparticle, p_pos_old, p_pos_new, p_vel);
-   }
-
+// SOA
+struct wrapper_t {
+  //thrust::device_vector<float4> d_pos1, d_pos2, d_vel;
+  float4 *d_pos1, *d_pos2, *d_vel;
+  int toggle; // pos1->pos2 or pos2->pos1
+  size_t nparticle;
 };
+
 
 class functor_thrust {
 private:
-  const device_vector<float4_t> * p_pos_old;
-  device_vector<float4_t> * p_pos_new;
-  device_vector<float4_t> * p_vel; 
-  int nparticle;
+  struct wrapper_t *_wrapper;
 public:
-   functor_thrust(   const float4_ts * pos_old,
-		     float4_ts * pos_new,
-		     float4_ts * vel,
-		     int n):
-     p_pos_old(pos_old),
-     p_pos_new(pos_new),
-     p_vel(vel),
-     nparticle(n)
+   functor_thrust( struct wrapper_t *w ):
+     _wrapper(w)
   {}
   
-  __device__ __host__
+  __device__ 
   void operator()(const int i) const 
   {
-    update_particle(i, nparticle, p_pos_old, p_pos_new, p_vel);
+    if ( _wrapper->toggle ) 
+    //   update_particle(i, _wrapper.d_pos1, _wrapper.d_pos2, _wrapper.d_vel);
+    // else
+      update_particle(i, _wrapper->nparticle, _wrapper->d_pos2, _wrapper->d_pos1, _wrapper->d_vel);
   }
 
 };
 
+#ifdef TBB
 class functor_tbb {
 private:
    const float4_ts * p_pos_old;
@@ -183,6 +195,7 @@ public:
    }
 
 };
+#endif // TBB
 
 
 int main()
@@ -197,63 +210,51 @@ int main()
   const float eps = 0.0001;
 
 
-  // create arrays
-
-  float4_ts pos1, pos2, vel;
-  std::vector<size_t> parts;
-  for ( size_t i = 0; i < nparticle; ++i )
-    parts.push_back(i); // ugh
-  //std::list<size_t> parts(nparticle);
-  //std::iota(parts.begin(), parts.end(), 0);
-  pos1.reserve(nparticle);
-  pos2.reserve(nparticle);
-  vel. reserve(nparticle);
+  thrust::host_vector<float4> h_pos1(nparticle), h_pos2(nparticle), h_vel(nparticle);
+  thrust::device_vector<float4> d_pos1(nparticle), d_pos2(nparticle), d_vel(nparticle);
   
   
-  const float4_t dt0(dt,dt,dt,0.0f);
+  const float4 dt0 = make_float4(dt,dt,dt,0.0f);
 
   for ( int i = 0; i < nparticle; ++i ){
-    pos1.push_back(float4_t(0.f,0.f,0.f,0.f));
-    pos1[i].x = (float)rand()/RAND_MAX * 100. - 50.;
-    pos1[i].y = (float)rand()/RAND_MAX * 100. - 50.;
-    pos1[i].z = (float)rand()/RAND_MAX * 100. - 50.;
-    pos1[i].w = (float)rand()/RAND_MAX * 10.; // mass
-    pos2.push_back(float4_t(0.f,0.f,0.f,0.f));
-    vel. push_back(float4_t(0.f,0.f,0.f,0.f));
+    
+    h_pos1.push_back(make_float4((float)rand()/RAND_MAX * 100. - 50.,
+				       (float)rand()/RAND_MAX * 100. - 50.,
+				       (float)rand()/RAND_MAX * 100. - 50.,
+				       (float)rand()/RAND_MAX * 10. // mass
+				       ));
+    h_pos2.push_back(make_float4(0.f,0.f,0.f,0.f));
+    h_vel. push_back(make_float4(0.f,0.f,0.f,0.f));
   }
+
+  struct wrapper_t wrapper;
+  // copy to GPU
+  d_pos1 = h_pos1;
+  d_pos2 = h_pos2;
+  d_vel  = h_vel;
+  wrapper.d_pos1 = thrust::raw_pointer_cast(d_pos1.data());
+  wrapper.d_pos2 = thrust::raw_pointer_cast(d_pos2.data());
+  wrapper.d_vel  = thrust::raw_pointer_cast(d_vel .data());
+  
 
   int which = 8;
 
-  float4_t startpos = pos1[which];
-
-  printf("Start: particle %d x=%f, y=%f, z=%f, m=%f\n",
-	 which, pos1[which].x, pos1[which].y, pos1[which].z, pos1[which].w);
   
   // loop over time steps
   for ( int istep = 0; istep<nstep; ++istep ) {
     printf("istep = %d,",istep);
-
-    float4_ts * pos_new,  * pos_old;
-    //const float4_ts * pos_new,  * pos_old;
+    int toggle;  // pos1->pos2 or pos2->pos1
     if ( istep%2==1 ) {
-      pos_new = &pos1;
-      pos_old = &pos2;
+      thrust::for_each(d_pos1.begin(), d_pos1.end(), functor_thrust(&wrapper));
     }
     else {
-      pos_new = &pos2;
-      pos_old = &pos1;
+      thrust::for_each(d_pos2.begin(), d_pos2.end(), functor_thrust(&wrapper));
     }
-    printf("particle %d x=%f, y=%f, z=%f, m=%f\n",
-	   which, (*pos_old)[which].x, (*pos_old)[which].y, (*pos_old)[which].z, (*pos_old)[which].w);
-
-    // for ( int i = 0; i < nparticle; ++i ) { // outer loop over particles
-    //   update_particle(i,nparticle, pos_old, pos_new, &vel);
-    // }
-    std::for_each(parts.begin(), parts.end(), functor_serial(pos_old, pos_new, &vel,nparticle));
+    
+    //std::for_each(parts.begin(), parts.end(), functor_serial(pos_old, pos_new, &vel,nparticle));
     
     // tbb::parallel_for(blocked_range<size_t>(0,nparticle),
     //  		      functor_tbb(pos_old, pos_new, &vel,nparticle));
-
   }
 
 
@@ -265,19 +266,21 @@ int main()
   // printf("Time spent = %g\n", t);
 
 
-  float4_t endpos = pos1[which];
+  //float4_t endpos = pos1[which];
 
-  printf("End:   particle %d x=%f, y=%f, z=%f, m=%f\n",
-	 which, pos1[which].x, pos1[which].y, pos1[which].z, pos1[which].w);
+  //printf("End:   particle %d x=%f, y=%f, z=%f, m=%f\n",
+  // which, pos1[which].x, pos1[which].y, pos1[which].z, pos1[which].w);
 
-  float4_t sep = endpos-startpos;;
-  float distance = sqrt(sep.x*sep.x + sep.y*sep.y + sep.z*sep.z);
-  printf("Distance travelled = %g\n", distance);
+  // //float4_t sep = endpos-startpos;;
+  // float distance = sqrt(sep.x*sep.x + sep.y*sep.y + sep.z*sep.z);
+  // printf("Distance travelled = %g\n", distance);
+
+  h_pos1 = d_pos1; // copy back
 
   //dump
   for ( size_t i = 0; i < nparticle; ++i ) {
     printf("Final: particle %d x=%f, y=%f, z=%f, m=%f\n",
-	 i, pos1[i].x, pos1[i].y, pos1[i].z, pos1[i].w);
+	 i, h_pos1[i].x, h_pos1[i].y, h_pos1[i].z, h_pos1[i].w);
   }
 
 
