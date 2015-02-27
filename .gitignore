@@ -26,6 +26,8 @@
 *.exe
 *.out
 *.app
+tbb/nbody
+cuda/nbody
 
 # Emacs tmp files
 *~

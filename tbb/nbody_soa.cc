@@ -75,6 +75,31 @@ float4_t operator*(const float & lhs, const float4_t & rhs ) {
   return tmp;
 }
 
+class float4_soa_t {
+private:
+  float *x, *y, *z, *w;
+  size_t nparticle_;
+public:
+  float4_soa_t(size_t n ) :
+    x(0),y(0),z(0),w(0),
+    nparticle_(n)
+  {
+    x = new float[nparticle_];
+    y = new float[nparticle_];
+    z = new float[nparticle_];
+    w = new float[nparticle_];
+  }
+  ~float4_soa_t()
+  {
+    delete [] x;
+    delete [] y;
+    delete [] z;
+    delete [] w;
+  }
+  //operator[](size_t i ) 
+};
+
+
 void update_particle(const size_t i, const size_t nparticle, 
 		     const std::vector<float4_t> * pos_old,
 		     std::vector<float4_t> * pos_new, 
@@ -89,8 +114,8 @@ void update_particle(const size_t i, const size_t nparticle,
   for(int j=0; j<nparticle; j++) { // inner loop over particles
      const float4_t p2 = (*pos_old)[j]; //Read a cached particle position */
      float4_t d = p2 - p;
-     const float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
-     const float f = p2.w*invr*invr*invr;
+     float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
+     float f = p2.w*invr*invr*invr;
      a += f*d; // Accumulate acceleration 
   }
   
@@ -224,8 +249,8 @@ int main()
 
     for( auto i: parts) 
       update_particle(i,nparticle, pos_old, pos_new, &vel);    
-    // tbb::parallel_for(blocked_range<size_t>(0,nparticle),
-    //   		      functor_tbb(pos_old, pos_new, &vel,nparticle));
+    tbb::parallel_for(blocked_range<size_t>(0,nparticle),
+      		      functor_tbb(pos_old, pos_new, &vel,nparticle));
 
 
 

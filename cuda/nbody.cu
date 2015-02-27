@@ -107,11 +107,7 @@ float4_t operator*(const float & lhs, const float4_t & rhs ) {
   return tmp;
 }
 
-// void update_particle(const size_t i, //const size_t nparticle, 
-// 		     const thrust::device_vector<float4> * pos_old,
-// 		     thrust::device_vector<float4> * pos_new, 
-// 		     thrust::device_vector<float4> * vel)
-__device__
+__device__ __host__
 void update_particle(const size_t i, const size_t nparticle, 
 		     const float4* pos_old,
 		     float4 * pos_new, 
@@ -124,8 +120,9 @@ void update_particle(const size_t i, const size_t nparticle,
   float4 v = vel[i];
   float4 a = make_float4(0.0f,0.0f,0.0f,0.0f);
   // does this include self-interaction?
-  for(size_t i = 0; i < nparticle; ++i  ) { // inner loop over particles
-    const float4 p2 = pos_old[i]; //Read a particle position 
+  for(size_t j = 0; j < nparticle; ++j  ) { // inner loop over particles
+    if ( i == j ) continue;
+    const float4 p2 = pos_old[j]; //Read a particle position 
     float4 d = p2 - p;
     float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
     float f = p2.w*invr*invr*invr;
@@ -140,7 +137,7 @@ void update_particle(const size_t i, const size_t nparticle,
   
 }
 
-// SOA
+// SOA - sorta?
 struct wrapper_t {
   //thrust::device_vector<float4> d_pos1, d_pos2, d_vel;
   float4 *d_pos1, *d_pos2, *d_vel;
@@ -161,9 +158,10 @@ public:
   void operator()(const int i) const 
   {
     if ( _wrapper->toggle ) 
-    //   update_particle(i, _wrapper.d_pos1, _wrapper.d_pos2, _wrapper.d_vel);
-    // else
       update_particle(i, _wrapper->nparticle, _wrapper->d_pos2, _wrapper->d_pos1, _wrapper->d_vel);
+    else
+      update_particle(i, _wrapper->nparticle, _wrapper->d_pos1, _wrapper->d_pos2, _wrapper->d_vel);
+      
   }
 
 };
@@ -171,14 +169,14 @@ public:
 #ifdef TBB
 class functor_tbb {
 private:
-   const float4_ts * p_pos_old;
-   float4_ts * p_pos_new;
-   float4_ts * p_vel; 
+   const float4 * p_pos_old;
+   float4 * p_pos_new;
+   float4 * p_vel; 
    int nparticle;
 public:
-   functor_tbb(   const float4_ts * pos_old,
-	      float4_ts * pos_new,
-	      float4_ts * vel,
+   functor_tbb(   const float4 * pos_old,
+	      float4 * pos_new,
+	      float4 * vel,
 	      int n):
       p_pos_old(pos_old),
       p_pos_new(pos_new),
@@ -212,6 +210,8 @@ int main()
 
   thrust::host_vector<float4> h_pos1(nparticle), h_pos2(nparticle), h_vel(nparticle);
   thrust::device_vector<float4> d_pos1(nparticle), d_pos2(nparticle), d_vel(nparticle);
+  thrust::device_vector<int> d_ivals(nparticle);
+  thrust::sequence(d_ivals.begin(), d_ivals.end()); // 0..nparticle-1
   
   
   const float4 dt0 = make_float4(dt,dt,dt,0.0f);
@@ -245,11 +245,12 @@ int main()
     printf("istep = %d,",istep);
     int toggle;  // pos1->pos2 or pos2->pos1
     if ( istep%2==1 ) {
-      thrust::for_each(d_pos1.begin(), d_pos1.end(), functor_thrust(&wrapper));
+      wrapper.toggle = 1;
     }
     else {
-      thrust::for_each(d_pos2.begin(), d_pos2.end(), functor_thrust(&wrapper));
+      wrapper.toggle = 0;
     }
+    thrust::for_each(d_ivals.begin(), d_ivals.end(), functor_thrust(&wrapper));
     
     //std::for_each(parts.begin(), parts.end(), functor_serial(pos_old, pos_new, &vel,nparticle));
     
