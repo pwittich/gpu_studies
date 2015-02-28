@@ -21,35 +21,8 @@
   #error "Please provide a definition for MY_ALIGN macro for your host compiler!"
 #endif
 
-float4
-__device__ __host__ operator*(const float4 a, const float4 b)
-{
-  return make_float4(a.x*b.x, a.y*b.y, a.z*b.z, a.w*b.w);
-}
-float4
-__device__ __host__ operator-(const float4 a, const float4 b)
-{
-  return make_float4(a.x-b.x, a.y-b.y, a.z-b.z, a.w-b.w);
-}
-
-float4
-__device__ __host__ operator*(const float a, const float4 b)
-{
-  return make_float4(a*b.x, a*b.y, a*b.z, a*b.w);
-}
-
-float4
-__device__ __host__ operator+=(const float4 a, float4 b)
-{
-  b = make_float4(a.x+b.x, a.y+b.y, a.z+b.z, a.w+b.w);
-  return b;
-}
-
-float4
-__device__ __host__ operator+(const float4 a, const float4 b)
-{
-  return make_float4(a.x+b.x, a.y+b.y, a.z+b.z, a.w+b.w);
-}
+#include "timer.h"
+#include "cuda_math.h"
 
 using namespace thrust;
 
@@ -144,10 +117,8 @@ int main()
 
 
   //uint64_t        t0, t1, t2;
-  int nparticle = 8; /* MUST be a nice power of two for simplicity */
-  const int nstep = 3;
-  //int nburst = 20; /* MUST divide the value of nstep without remainder */
-  //int nthread = 64; /* chosen for ATI Radeon HD 5870 */
+  int nparticle = 2*8192; /* MUST be a nice power of two for simplicity */
+  const int nstep = 10000;
 
   const float dt = 0.1;
   const float eps = 0.0001;
@@ -158,7 +129,6 @@ int main()
   thrust::sequence(d_ivals.begin(), d_ivals.end()); // 0..nparticle-1
   printf("copying from GPU\n");
   h_ivals = d_ivals;
-  //return 0;
 
   thrust::host_vector<float4> h_pos1(nparticle), h_pos2(nparticle), h_vel(nparticle);
   thrust::device_vector<float4> d_pos1(nparticle), d_pos2(nparticle), d_vel(nparticle);
@@ -168,7 +138,7 @@ int main()
 
   printf("making particles .... \n");
   srand(1232773);
-  for ( int i = 0; i < nparticle; ++i ){
+  for ( int i = nparticle-1; i >=0; --i ){
     h_pos1[i] = make_float4(100.*rand()/RAND_MAX  - 50.,
 			    100.*rand()/RAND_MAX  - 50.,
 			    100.*rand()/RAND_MAX - 50.,
@@ -177,8 +147,10 @@ int main()
     h_pos2[i] = make_float4(0.f,0.f,0.f,0.f);
     h_vel[i]  = make_float4(0.f,0.f,0.f,0.f);
   }
-  for ( int i = 0; i < nparticle; ++i ) {
-    printf("%d\t%f\n", i,h_pos1[i]);
+  //dump
+  for ( size_t i = 0; i < nparticle; ++i ) {
+    printf("Initial: particle %d x=%f, y=%f, z=%f, m=%f\n",
+	 i, h_pos1[i].x, h_pos1[i].y, h_pos1[i].z, h_pos1[i].w);
   }
 
   struct wrapper_t wrapper;
@@ -210,8 +182,9 @@ int main()
   
   // loop over time steps
   printf("Starting loop \n");
+  timer t0("loop");
+  t0.start_time();
   for ( int istep = 0; istep<nstep; ++istep ) {
-    printf("istep = %d,\n",istep);
     if ( istep%2==0 ) {
       wrapper.toggle = 1;
     }
@@ -233,27 +206,12 @@ int main()
     // }
     // std::for_each(h_ivals.begin(), h_ivals.end(), functor_thrust(h_wrapper));
     
-    // tbb::parallel_for(blocked_range<size_t>(0,nparticle),
-    //  		      functor_tbb(pos_old, pos_new, &vel,nparticle));
   }
+  t0.stop_time("loop");
 
 
   //t2 = mach_absolute_time();
   printf("done.\n");
-  // struct mach_timebase_info info;
-  // mach_timebase_info(&info);
-  // double          t = 1e-9 * (t2 - t1) * info.numer / info.denom;
-  // printf("Time spent = %g\n", t);
-
-
-  //float4_t endpos = pos1[which];
-
-  //printf("End:   particle %d x=%f, y=%f, z=%f, m=%f\n",
-  // which, pos1[which].x, pos1[which].y, pos1[which].z, pos1[which].w);
-
-  // //float4_t sep = endpos-startpos;;
-  // float distance = sqrt(sep.x*sep.x + sep.y*sep.y + sep.z*sep.z);
-  // printf("Distance travelled = %g\n", distance);
 
   h_pos1 = d_pos1; // copy back
 
