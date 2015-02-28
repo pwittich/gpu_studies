@@ -21,7 +21,7 @@ NVCC = nvcc
 
 #NVCCFLAGS = -O3 $(INCFLAG)  --use_fast_math $(GENCODE_SM13) #use to compile on l2gpu with GTX285
 #NVCCFLAGS = -O3 $(INCFLAG)  --use_fast_math $(GENCODE_SM20)
-NVCCFLAGS = -O3 $(INCFLAG)  --use_fast_math $(GENCODE_FLAGS) #-Xcompiler "-std=c++11"
+NVCCFLAGS = -g -lineinfo -DTHRUST_DEBUG   $(INCFLAG)   $(GENCODE_FLAGS) #-Xcompiler "-std=c++11"
 
 
 #LIBS=-L/home/wittich/src/cudpp_install_2.0/lib -lcudpp
@@ -35,7 +35,7 @@ all: nbody test
 
 
 nbody: nbody.o
-	$(NVCC) $^ -o $@ 
+	$(NVCC) $(NVCCFLAGS) $^ -o $@ 
 
 test: test.o
 	$(NVCC) $^ -o $@ 
