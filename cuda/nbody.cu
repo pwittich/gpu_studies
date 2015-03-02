@@ -10,6 +10,7 @@
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
 #include <thrust/sequence.h>
+#include <thrust/iterator/zip_iterator.h>
 
 #if defined(__CUDACC__) // NVCC
 #define MY_ALIGN(n) __align__(n)
@@ -86,6 +87,30 @@ public:
 
 };
 
+class f2 {
+public:
+  __device__ __host__
+  float4 operator()(const float4 a, const float4 b)
+  {
+    return a+b;
+  }
+};
+
+typedef thrust::device_vector<float4>::iterator Float4Iter;
+
+// Binary must return same value as arguments
+class f3 {
+public:
+  __device__ __host__
+  float4 operator()(const thrust::tuple<Float4Iter,Float4Iter> a,
+		    const thrust::tuple<Float4Iter,Float4Iter> b)
+  {
+    // return thrust::get<1>(a).w*thrust::get<0>(a)
+    //   +thrust::get<1>(b).w*thrust::get<0>(b);
+    return *thrust::get<0>(a)+*thrust::get<0>(b);
+  }
+};
+
 #define CUDA_SAFE_CALL(call) call
 
 int main()
@@ -117,7 +142,7 @@ int main()
 
 
   //uint64_t        t0, t1, t2;
-  int nparticle = 2*8192; /* MUST be a nice power of two for simplicity */
+  int nparticle = 16*8192; /* MUST be a nice power of two for simplicity */
   const int nstep = 10000;
 
   const float dt = 0.1;
@@ -138,19 +163,20 @@ int main()
 
   printf("making particles .... \n");
   srand(1232773);
-  for ( int i = nparticle-1; i >=0; --i ){
+  for ( int i = 0; i < nparticle; ++i ) {
     h_pos1[i] = make_float4(100.*rand()/RAND_MAX  - 50.,
 			    100.*rand()/RAND_MAX  - 50.,
-			    100.*rand()/RAND_MAX - 50.,
-			    10.*rand()/RAND_MAX // mass
-			    );
+			    100.*rand()/RAND_MAX - 50., 1.);
     h_pos2[i] = make_float4(0.f,0.f,0.f,0.f);
     h_vel[i]  = make_float4(0.f,0.f,0.f,0.f);
   }
-  //dump
-  for ( size_t i = 0; i < nparticle; ++i ) {
-    printf("Initial: particle %d x=%f, y=%f, z=%f, m=%f\n",
-	 i, h_pos1[i].x, h_pos1[i].y, h_pos1[i].z, h_pos1[i].w);
+  bool dump = false;
+  if ( dump ) {
+    //dump
+    for ( size_t i = 0; i < nparticle; ++i ) {
+      printf("Initial: particle %d x=%f, y=%f, z=%f, m=%f\n",
+	     i, h_pos1[i].x, h_pos1[i].y, h_pos1[i].z, h_pos1[i].w);
+    }
   }
 
   struct wrapper_t wrapper;
@@ -185,6 +211,7 @@ int main()
   timer t0("loop");
   t0.start_time();
   for ( int istep = 0; istep<nstep; ++istep ) {
+#ifndef SERIAL
     if ( istep%2==0 ) {
       wrapper.toggle = 1;
     }
@@ -197,28 +224,47 @@ int main()
     catch(thrust::system_error &e) {
       printf("error: %s\n", e.what());
     }
-    
-    // if ( istep%2==0 ) {
-    //   h_wrapper.toggle = 1;
-    // }
-    // else {
-    //   h_wrapper.toggle = 0;
-    // }
-    // std::for_each(h_ivals.begin(), h_ivals.end(), functor_thrust(h_wrapper));
-    
-  }
+    // every 100 steps calculate total momentum
+    if ( istep%100 == 0 ) {
+      // equal masses
+      float4 ptotal = thrust::reduce(d_vel.begin(), d_vel.end(), make_float4(0.,0.,0.,0.),
+				     f2());
+      // non-equal masses
+      ptotal = thrust::reduce(thrust::make_zip_iterator(thrust::make_tuple(d_vel.begin(),
+									   d_pos1.begin())),
+			      thrust::make_zip_iterator(thrust::make_tuple(d_vel.end(),
+									   d_pos1.end())),
+							make_float4(0.,0.,0.,0.),
+							f3());
+      printf("total p = %f\n", sqrt(ptotal.x*ptotal.x + ptotal.y*ptotal.y + ptotal.z*ptotal.z));
+    }
+#else // SERIAL    
+    if ( istep%2==0 ) {
+      h_wrapper.toggle = 1;
+    }
+    else {
+      h_wrapper.toggle = 0;
+    }
+    std::for_each(h_ivals.begin(), h_ivals.end(), functor_thrust(h_wrapper));
+#endif // SERIAL    
+  } // loop over time steps
+  cudaDeviceSynchronize();
   t0.stop_time("loop");
 
 
   //t2 = mach_absolute_time();
   printf("done.\n");
 
+#ifndef SERIAL
   h_pos1 = d_pos1; // copy back
+#endif // SERIAL  
 
-  //dump
-  for ( size_t i = 0; i < nparticle; ++i ) {
-    printf("Final: particle %d x=%f, y=%f, z=%f, m=%f\n",
-	 i, h_pos1[i].x, h_pos1[i].y, h_pos1[i].z, h_pos1[i].w);
+  if ( dump ) {
+    //dump
+    for ( size_t i = 0; i < nparticle; ++i ) {
+      printf("Final: particle %d x=%f, y=%f, z=%f, m=%f\n",
+	     i, h_pos1[i].x, h_pos1[i].y, h_pos1[i].z, h_pos1[i].w);
+    }
   }
 
 
