@@ -1,5 +1,6 @@
 // -*-c++-*-
 #include <cstdio>
+#include <cassert>
 #include <cstdlib>
 //#include <mach/mach_time.h>
 #include <cmath>
@@ -12,13 +13,19 @@
 using namespace tbb;
 
 class float4_t {
+private:
  public:
-  float x,y,z,w;
+  float x_,y_,z_,w_;
+  float4_t(const float x, const float y,
+	   const float z, const float w) :
+    x_(x), y_(y), z_(z), w_(w)
+  {
+  }
   float4_t operator+=(const float4_t & rhs ) {
-    this->x += rhs.x;
-    this->y += rhs.y;
-    this->z += rhs.z;
-    this->w += rhs.w;
+    this->x_ += rhs.x_;
+    this->y_ += rhs.y_;
+    this->z_ += rhs.z_;
+    this->w_ += rhs.w_;
     return *this ;
   }
    float4_t operator+( const float4_t & rhs ) const {
@@ -27,10 +34,10 @@ class float4_t {
     return tmp;
   }
   float4_t operator-=(const float4_t & rhs ) {
-    this->x -= rhs.x;
-    this->y -= rhs.y;
-    this->z -= rhs.z;
-    this->w -= rhs.w;
+    this->x_ -= rhs.x_;
+    this->y_ -= rhs.y_;
+    this->z_ -= rhs.z_;
+    this->w_ -= rhs.w_;
     return *this ;
   }
   float4_t operator-( const float4_t & rhs )  const {
@@ -39,10 +46,10 @@ class float4_t {
     return tmp;
   }
   float4_t operator*=(const float4_t & rhs ) {
-    this->x *= rhs.x;
-    this->y *= rhs.y;
-    this->z *= rhs.z;
-    this->w *= rhs.w;
+    this->x_ *= rhs.x_;
+    this->y_ *= rhs.y_;
+    this->z_ *= rhs.z_;
+    this->w_ *= rhs.w_;
     return *this ;
   }
   float4_t operator*(const float4_t & rhs ) const {
@@ -52,10 +59,10 @@ class float4_t {
   }
 
   float4_t operator*=(const float & rhs) {
-    this->x *= rhs;
-    this->y *= rhs;
-    this->z *= rhs;
-    this->w *= rhs;
+    this->x_ *= rhs;
+    this->y_ *= rhs;
+    this->z_ *= rhs;
+    this->w_ *= rhs;
     return *this ;
   }
   float4_t operator*(const float & rhs) const {
@@ -63,11 +70,22 @@ class float4_t {
     tmp *= rhs;
     return tmp;
   }
+
+  float x() const {
+    return x_;
+  }
+  float y() const {
+    return y_;
+  }
+  float z() const {
+    return z_;
+  }
+  float w() const {
+    return w_;
+  }
     
- float4_t(float ax, float ay, float az, float aw) :
-  x(ax), y(ay), z(az), w(aw)
-  {}
 };
+
 
 float4_t operator*(const float & lhs, const float4_t & rhs ) {
   float4_t tmp=rhs;
@@ -75,35 +93,65 @@ float4_t operator*(const float & lhs, const float4_t & rhs ) {
   return tmp;
 }
 
-class float4_soa_t {
+class float4_ts {
 private:
-  float *x, *y, *z, *w;
+  float *x_, *y_, *z_, *w_;
   size_t nparticle_;
 public:
-  float4_soa_t(size_t n ) :
-    x(0),y(0),z(0),w(0),
+  float4_ts(size_t n ) :
+    x_(0),y_(0),z_(0),w_(0),
     nparticle_(n)
   {
-    x = new float[nparticle_];
-    y = new float[nparticle_];
-    z = new float[nparticle_];
-    w = new float[nparticle_];
+    x_ = new float[nparticle_];
+    y_ = new float[nparticle_];
+    z_ = new float[nparticle_];
+    w_ = new float[nparticle_];
   }
-  ~float4_soa_t()
+  float4_ts(size_t n, float *fx, float *fy, float *fz, float *fw) :
+    nparticle_(n)
   {
-    delete [] x;
-    delete [] y;
-    delete [] z;
-    delete [] w;
+    x_ = new float[nparticle_];
+    y_ = new float[nparticle_];
+    z_ = new float[nparticle_];
+    w_ = new float[nparticle_];
+    memcpy(x_, fx, n);
+    memcpy(y_, fy, n);
+    memcpy(z_, fz, n);
+    memcpy(w_, fw, n);
   }
-  //operator[](size_t i ) 
+  ~float4_ts()
+  {
+    delete [] x_;
+    delete [] y_;
+    delete [] z_;
+    delete [] w_;
+  }
+  float4_t operator[](size_t i) const
+  {
+    assert(i<nparticle_);
+    return float4_t(x_[i], y_[i], z_[i], w_[i]);
+  }
+  //float4_t operator=
+
+  float * x() {
+    return x_;
+  }
+  float * y() {
+    return y_;
+  }
+  float * z() {
+    return z_;
+  }
+  float * w() {
+    return w_;
+  }
 };
 
 
 void update_particle(const size_t i, const size_t nparticle, 
-		     const std::vector<float4_t> * pos_old,
-		     std::vector<float4_t> * pos_new, 
-		     std::vector<float4_t> * vel)
+		     const float4_ts * pos_old,
+		     float4_ts * pos_new, 
+		     float4_ts * vel)
 {
   const float dt = 0.1;
   const float4_t dt0(dt,dt,dt,0.0f);
@@ -114,8 +162,8 @@ void update_particle(const size_t i, const size_t nparticle,
   for(int j=0; j<nparticle; j++) { // inner loop over particles
      const float4_t p2 = (*pos_old)[j]; //Read a cached particle position */
      float4_t d = p2 - p;
-     float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
-     float f = p2.w*invr*invr*invr;
+     float invr = 1./sqrt(d.x()*d.x() + d.y()*d.y() + d.z()*d.z() + eps);
+     float f = p2.w()*invr*invr*invr;
      a += f*d; // Accumulate acceleration 
   }
   
@@ -127,7 +175,6 @@ void update_particle(const size_t i, const size_t nparticle,
   
 }
 
-typedef std::vector<float4_t> float4_ts;
 
 class functor_serial {
 private:
@@ -196,24 +243,24 @@ int main()
 
   // create arrays
 
-  float4_ts pos1, pos2, vel;
+  float4_ts pos1(nparticle), pos2(nparticle), vel(nparticle);
   std::list<int> parts(nparticle);
   std::iota(parts.begin(), parts.end(), 0);
-  pos1.reserve(nparticle);
-  pos2.reserve(nparticle);
-  vel. reserve(nparticle);
   
   
   const float4_t dt0(dt,dt,dt,0.0f);
 
   for ( int i = 0; i < nparticle; ++i ){
-    pos1.push_back(float4_t(0.f,0.f,0.f,0.f));
-    pos1[i].x = (float)rand()/RAND_MAX * 100. - 50.;
-    pos1[i].y = (float)rand()/RAND_MAX * 100. - 50.;
-    pos1[i].z = (float)rand()/RAND_MAX * 100. - 50.;
-    pos1[i].w = (float)rand()/RAND_MAX * 10.; // mass
-    pos2.push_back(float4_t(0.f,0.f,0.f,0.f));
-    vel. push_back(float4_t(0.f,0.f,0.f,0.f));
+    float *p1x = pos1.x();
+    float *p1y = pos1.y();
+    float *p1z = pos1.z();
+    float *p1w = pos1.w();
+    p1x[i] = (float)rand()/RAND_MAX * 100. - 50.;
+    p1y[i] = (float)rand()/RAND_MAX * 100. - 50.;
+    p1z[i] = (float)rand()/RAND_MAX * 100. - 50.;
+    p1w[i] = (float)rand()/RAND_MAX * 10.; // mass
+    // pos2.push_back(float4_t(0.f,0.f,0.f,0.f));
+    // vel. push_back(float4_t(0.f,0.f,0.f,0.f));
   }
 
   int which = 8;
