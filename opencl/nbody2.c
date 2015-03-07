@@ -1,15 +1,15 @@
 // based on transpose.c by apple
 // clang -framework OpenCL nbody.c
 
-#include <libc.h>
+//#include <libc.h>
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <OpenCL/opencl.h>
-#include <mach/mach_time.h>
+#include <CL/opencl.h>
 #include <math.h>
+#include <strings.h>
 
 const char* oclErrorString(cl_int error);
 
@@ -44,7 +44,6 @@ const int height = 512;
 int 
 main(int argc, char **argv)
 {
-  uint64_t        t0, t1, t2;
   int             err;
   cl_device_id    device_id[2];
   cl_context      context;
@@ -274,7 +273,6 @@ main(int argc, char **argv)
     printf("iter=%d\n", iter);
     int             k;
     err = CL_SUCCESS;
-    t0 = t1 = mach_absolute_time();
     err = clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
 
     if ( err != CL_SUCCESS ) {
@@ -282,7 +280,6 @@ main(int argc, char **argv)
       break;
     }
     clFinish(queue);
-    t2 = mach_absolute_time();
     if (err != CL_SUCCESS) {
       printf("Error: Failed to execute kernel!\n");
       return EXIT_FAILURE;
@@ -290,13 +287,7 @@ main(int argc, char **argv)
     //printf("done.\n");
     //Calculate the total bandwidth that was obtained on the device for all  memory transfers
     //
-    struct mach_timebase_info info;
-    mach_timebase_info(&info);
-    double          t = 1e-9 * (t2 - t1) * info.numer / info.denom;
-    //printf("Time spent = %g\n", t);
 
-    tavg_0 += t;
-    tsqu_0 += t*t;
 
     //Read back the results that were computed on the device
     //
@@ -360,9 +351,6 @@ main(int argc, char **argv)
     writeDat(fname, (void*)pos, nparticle);
   }
 
-  double tavg = tavg_0/nstep/nburst;
-  double trms = sqrt((tsqu_0- tavg_0*tavg_0/(nstep*nburst))/(nstep*nburst-1));;
-  printf("Average time spent per single step  = %g pm %g\n", tavg, trms);
 
 
   free(pos);
