@@ -1,4 +1,5 @@
-#include <OpenCL/opencl.h>
+//#include <OpenCL/opencl.h> // APPLE
+#include <CL/opencl.h>
 
 #include <errno.h>
 #include <stdio.h>

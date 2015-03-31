@@ -1,14 +1,14 @@
 // based on transpose.c by apple
 // clang -framework OpenCL nbody.c
 
-#include <libc.h>
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <OpenCL/opencl.h>
-#include <mach/mach_time.h>
+//#include <OpenCL/opencl.h>
+#include <CL/opencl.h>
+//#include <mach/mach_time.h>
 #include <math.h>
 
 #include <signal.h>
@@ -63,7 +63,7 @@ main(int argc, char **argv)
 
   signal(SIGINT, siginthandler);
 
-  uint64_t        t0, t1, t2;
+  //uint64_t        t0, t1, t2;
   int             err;
   cl_device_id    device_id[2];
   cl_context      context;
@@ -320,7 +320,7 @@ main(int argc, char **argv)
     printf("iter=%d\n", iter);
     int             k;
     err = CL_SUCCESS;
-    t0 = t1 = mach_absolute_time();
+    //t0 = t1 = mach_absolute_time();
     for (k = 0; k < nburst; k++) {
       //printf("k=%d\n", k);
       // I think this is a non-blocking call
@@ -349,7 +349,7 @@ main(int argc, char **argv)
     }
 
     clFinish(queue);
-    t2 = mach_absolute_time();
+    //t2 = mach_absolute_time();
     if (err != CL_SUCCESS) {
       printf("Error: Failed to execute kernel (%s)!\n", oclErrorString(err));
       return EXIT_FAILURE;
@@ -357,14 +357,6 @@ main(int argc, char **argv)
     //printf("done.\n");
     //Calculate the total bandwidth that was obtained on the device for all  memory transfers
     //
-    struct mach_timebase_info info;
-    mach_timebase_info(&info);
-    double          t = 1e-9 * (t2 - t1) * info.numer / info.denom;
-    printf("Time spent = %g\n", t/(1.*nburst));
-
-    tavg_0 += t/nburst;
-    tsqu_0 += t*t/(nburst*nburst);
-
     //Read back the results that were computed on the device
     //
     err = clEnqueueReadBuffer(queue, bpos1, true, 0, sizeof(cl_float4)*nparticle , pos1, 0, NULL, NULL);
