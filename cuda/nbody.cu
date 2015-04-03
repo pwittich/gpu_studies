@@ -35,7 +35,7 @@ void update_particle(const size_t i, const size_t nparticle,
 		     float4 * vel)
 {
   const float dt = 0.1;
-  const float4 dt0 =make_float4(dt,dt,dt,0.0f);
+  const float4 dt0 = make_float4(dt,dt,dt,0.0f);
   const float eps = 0.0001;
   float4 p = pos_old[i];
   float4 v = vel[i];
@@ -46,9 +46,12 @@ void update_particle(const size_t i, const size_t nparticle,
     const float4 p2 = pos_old[j]; //Read a particle position 
     float4 d = p2 - p;
     float invr = 1./sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps);
-    float f = p2.w*invr*invr*invr;
-    a += f*d; // Accumulate acceleration 
+    //printf("d = %f %f %f, invr = %f\n", d.x, d.y,d.z, invr);
+    float f = p2.w*invr*invr*invr ;
+    a += f*d ;//+ make_float4(0.0,0.001,0.0,0.0); // Accumulate acceleration 
   }
+
+  //printf("a = %f %f %f\n", a.x, a.y,a.z);
   
   p += dt0*v + 0.5f*dt0*dt0*a;
   v += dt0*a;
@@ -141,12 +144,20 @@ int main()
 
 
 
-  //uint64_t        t0, t1, t2;
-  int nparticle = 16*8192; /* MUST be a nice power of two for simplicity */
+  //#define SMALL
+  //#define SERIAL  
+#ifdef SMALL
+  const bool dump = true;
+  const int nparticle = 1024;
+  const int nstep = 100;
+#else // SMALL
+  const bool dump = false;
+  const int nparticle = 8192; 
   const int nstep = 10000;
+#endif // SMALL  
 
   const float dt = 0.1;
-  const float eps = 0.0001;
+  //const float eps = 0.0001;
 
 
   thrust::device_vector<int> d_ivals(nparticle);
@@ -170,7 +181,6 @@ int main()
     h_pos2[i] = make_float4(0.f,0.f,0.f,0.f);
     h_vel[i]  = make_float4(0.f,0.f,0.f,0.f);
   }
-  bool dump = false;
   if ( dump ) {
     //dump
     for ( size_t i = 0; i < nparticle; ++i ) {
@@ -178,9 +188,8 @@ int main()
 	     i, h_pos1[i].x, h_pos1[i].y, h_pos1[i].z, h_pos1[i].w);
     }
   }
-
+#ifndef SERIAL
   struct wrapper_t wrapper;
-  struct wrapper_t h_wrapper;
   // copy to GPU
   printf("copying to GPU .... 1\n");
   d_pos1 = h_pos1;
@@ -194,16 +203,16 @@ int main()
   wrapper.vel  = thrust::raw_pointer_cast(d_vel .data());
   wrapper.nparticle = nparticle;
   wrapper.toggle = 0;
-
+#else // SERIAL
+  struct wrapper_t h_wrapper;
   h_wrapper.pos1 = thrust::raw_pointer_cast(h_pos1.data());
   h_wrapper.pos2 = thrust::raw_pointer_cast(h_pos2.data());
   h_wrapper.vel  = thrust::raw_pointer_cast(h_vel .data());
   h_wrapper.nparticle = nparticle;
   h_wrapper.toggle = 0;
+#endif //SERIAL
 
 
-
-  int which = 8;
 
   
   // loop over time steps
@@ -229,13 +238,15 @@ int main()
       // equal masses
       float4 ptotal = thrust::reduce(d_vel.begin(), d_vel.end(), make_float4(0.,0.,0.,0.),
 				     f2());
-      // non-equal masses
-      ptotal = thrust::reduce(thrust::make_zip_iterator(thrust::make_tuple(d_vel.begin(),
-									   d_pos1.begin())),
-			      thrust::make_zip_iterator(thrust::make_tuple(d_vel.end(),
-									   d_pos1.end())),
-							make_float4(0.,0.,0.,0.),
-							f3());
+      // // non-equal masses
+      // this doesn't work because f3::operator() needs to return the same
+      // type as the argument to operator()
+      // ptotal = thrust::reduce(thrust::make_zip_iterator(thrust::make_tuple(d_vel.begin(),
+      // 									   d_pos1.begin())),
+      // 			      thrust::make_zip_iterator(thrust::make_tuple(d_vel.end(),
+      // 									   d_pos1.end())),
+      // 							make_float4(0.,0.,0.,0.),
+      // 							f3());
       printf("total p = %f\n", sqrt(ptotal.x*ptotal.x + ptotal.y*ptotal.y + ptotal.z*ptotal.z));
     }
 #else // SERIAL    
@@ -246,6 +257,12 @@ int main()
       h_wrapper.toggle = 0;
     }
     std::for_each(h_ivals.begin(), h_ivals.end(), functor_thrust(h_wrapper));
+    if ( istep%100 == 0 ) {
+      // equal masses
+      float4 ptotal = std::accumulate(h_vel.begin(), h_vel.end(), make_float4(0.,0.,0.,0.),
+				     f2());
+      printf("total p = %f\n", sqrt(ptotal.x*ptotal.x + ptotal.y*ptotal.y + ptotal.z*ptotal.z));
+    }
 #endif // SERIAL    
   } // loop over time steps
   cudaDeviceSynchronize();

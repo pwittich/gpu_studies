@@ -1,6 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
-#include <mach/mach_time.h>
+//#include <mach/mach_time.h>
 #include <cmath>
 #include <vector>
 
@@ -71,7 +71,6 @@ float4 operator*(const float & lhs, const float4 & rhs ) {
 
 int main()
 {
-  uint64_t        t0, t1, t2;
   int nparticle = 2*8192; /* MUST be a nice power of two for simplicity */
   const int nstep = 5;
   //int nburst = 20; /* MUST divide the value of nstep without remainder */
@@ -108,7 +107,7 @@ int main()
 	 which, pos1[which].x, pos1[which].y, pos1[which].z, pos1[which].w);
   
   // start iterating
-  t0 = t1 = mach_absolute_time();
+  //t0 = t1 = mach_absolute_time();
   for ( int istep = 0; istep<nstep; ++istep ) {
     printf("istep = %d,",istep);
 
@@ -146,12 +145,7 @@ int main()
     }
   }
 
-  t2 = mach_absolute_time();
   printf("done.\n");
-  struct mach_timebase_info info;
-  mach_timebase_info(&info);
-  double          t = 1e-9 * (t2 - t1) * info.numer / info.denom;
-  printf("Time spent = %g\n", t);
 
 
   float4 endpos = pos1[which];

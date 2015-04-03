@@ -13,15 +13,18 @@ GENCODE_SM30    := -gencode arch=compute_30,code=sm_30
 GENCODE_SM35    := -gencode arch=compute_35,code=sm_35
 GENCODE_SM352   := -gencode=arch=compute_35,code=compute_35
 #GENCODE_FLAGS   := $(GENCODE_SM10) $(GENCODE_SM13) $(GENCODE_SM20) $(GENCODE_SM30) $(GENCODE_SM35)
-GENCODE_FLAGS   :=  $(GENCODE_SM13) $(GENCODE_SM20) $(GENCODE_SM30) $(GENCODE_SM35) $(GENCODE_SM352)
+#GENCODE_FLAGS   :=  $(GENCODE_SM13) $(GENCODE_SM20) $(GENCODE_SM30) $(GENCODE_SM35) $(GENCODE_SM352)
+GENCODE_FLAGS   :=  $(GENCODE_SM35)
 
 NVCC = nvcc
 #NVCCFLAGS = -O3 $(INCFLAG) --ptxas-options=-v -use_fast_math $(GENCODE_FLAGS)
+#NVCCFLAGS = -O3 $(INCFLAG)  -use_fast_math $(GENCODE_FLAGS)
+NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS)
 #NVCCFLAGS = -g $(INCFLAG) --verbose $(GENCODE_SM20) #-DTHRUST_DEBUG
 
 #NVCCFLAGS = -O3 $(INCFLAG)  --use_fast_math $(GENCODE_SM13) #use to compile on l2gpu with GTX285
 #NVCCFLAGS = -O3 $(INCFLAG)  --use_fast_math $(GENCODE_SM20)
-NVCCFLAGS = -g -lineinfo -DTHRUST_DEBUG   $(INCFLAG)   $(GENCODE_FLAGS) #-Xcompiler "-std=c++11"
+#NVCCFLAGS = -g -lineinfo -DTHRUST_DEBUG   $(INCFLAG)   $(GENCODE_FLAGS) #-Xcompiler "-std=c++11"
 
 
 #LIBS=-L/home/wittich/src/cudpp_install_2.0/lib -lcudpp
@@ -45,7 +48,8 @@ clean:
 	$(RM) *.o *~ 
 
 depend:
-	makedepend -Y $(INCFLAG) *.cu *.cc *.h
+	makedepend  *.cu *.cc *.h
 
 # DO NOT DELETE
 
+nbody.o: timer.h cuda_math.h
