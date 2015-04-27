@@ -40,8 +40,9 @@ __global__ void nbody_kern(float4* pos_old,
   const float eps = 0.001f;
   const float4 dt = make_float4(dt1,dt1,dt1,0.0f);
 
-  const int nt = blockDim.x;
-  const int nb = gridDim.x;
+  // removing these saves a register
+  //const int nt = blockDim.x;
+  //const int nb = gridDim.x;
 
 
   const int gti = blockIdx.x * blockDim.x + threadIdx.x;
@@ -50,25 +51,26 @@ __global__ void nbody_kern(float4* pos_old,
   float4 p = pos_old[gti];
   float4 v = vel[gti];
   float4 a = make_float4(0.0f,0.0f,0.0f,0.0f);
-  const int ti = threadIdx.x;
+  //const int ti = threadIdx.x;
   //__shared__ float4 pblock[NTHREADS];
+  // this makes the shared block external with size configurable at runtime
   extern __shared__ float4 pblock[];
 
-  for(short jb=0; jb < nb; ++jb) { //foreach block
+  for(short jb=0; jb < gridDim.x; ++jb) { //foreach block
 
-    pblock[ti] = pos_old[jb*nt+ti]; /* Cache ONE particle position */
+    pblock[threadIdx.x] = pos_old[jb*blockDim.x+threadIdx.x]; /* Cache ONE particle position */
     __syncthreads(); // make sure the local cache is updated and visible to all threads
 
 #pragma unroll 16  // turn on unrolling
-    for(short j=0; j<nt; ) { /* For ALL cached particle positions ... */
-      float4 p2 = pblock[j]; /* Read a cached particle position */
-      float4 d = p2 - p;
+    for(short j=0; j<blockDim.x; ++j ) { // loop over cached particles. short save register?
+      const float4 p2 = pblock[j]; /* Read a cached particle position */
+      const float4 d = p2 - p;
       const float invr = rsqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps );
       const float f = p2.w*invr*invr*invr; // this is actually f/(r^3 m_1), assume G = 1
       // d is direction btw two but not a unit vector
       // extra powers of invr above take care of length
       a += f*d; /* Accumulate acceleration */
-      ++j;
+      //++j;
     }
 
     __syncthreads(); // sync again before updating cache to next block
@@ -270,26 +272,29 @@ main(int argc, char **argv)
     }
 
     printf("iter=%d of %d\n", iter, nstep);
-    int             k;
+    cudaEvent_t start, stop;
+    float t;
 
-    struct timeval t0r, t1r;
-    double t0, t1;
-    gettimeofday(&t0r, NULL);
-    t0 =  t0r.tv_sec*1000000 + (t0r.tv_usec);
-    for (k = 0; k < nburst; k++) {
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord( start, 0 );
+    for (int k = 0; k < nburst; k++) {
       if ( k%2==0 ) {
 	// third argument is the size of the shared memory space
-	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos1_d,pos2_d,vel_d);
+	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos1_d,
+								 pos2_d,vel_d);
       } else {
-	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos2_d,pos1_d,vel_d);
+	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos2_d,
+								 pos1_d,vel_d);
       }
+    } // nburst
+    cudaEventRecord( stop, 0 );
+    cudaEventSynchronize( stop );
 
-
-    }
-    CUDA_SAFE_CALL(cudaDeviceSynchronize());
-    gettimeofday(&t1r, NULL);
-    t1 =  t1r.tv_sec*1000000 + (t1r.tv_usec);
-    double t = (t1-t0)/1e6;
+    cudaEventElapsedTime( &t, start, stop );
+    cudaEventDestroy( start );
+    cudaEventDestroy( stop );
 
 
     tavg_0 += t/nburst;
@@ -300,6 +305,7 @@ main(int argc, char **argv)
     CUDA_SAFE_CALL(cudaMemcpy(pos1, pos1_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
     CUDA_SAFE_CALL(cudaMemcpy(pos2, pos2_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
 
+    // do this on the device?
     if ( iter%25==0 ) {    
       // get velocities
       CUDA_SAFE_CALL(cudaMemcpy(vel, vel_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
@@ -339,9 +345,11 @@ main(int argc, char **argv)
 
   double tavg = tavg_0/(iter);
   double trms = sqrt((tsqu_0- tavg_0*tavg_0/(1.*iter))/(iter-1.0));
-  printf("Average time spent per single step  = %g pm %g\n", tavg, trms);
+  printf("Average time spent per single step  = %g pm %g ms\n", tavg, trms);
 
+#ifdef DUMP
   savestate("current.dat", pos1, vel, nparticle, iter+nstep_start);
+#endif // DUMP
 
   free(pos1);
   free(pos2); 
