@@ -56,7 +56,7 @@ __global__ void nbody_kern(float4* pos_old,
   // this makes the shared block external with size configurable at runtime
   extern __shared__ float4 pblock[];
 
-  for(short jb=0; jb < gridDim.x; ++jb) { //foreach block
+  for(short jb=0; jb < gridDim.x; ++jb) { //for each block. short saves a register.
 
     pblock[threadIdx.x] = pos_old[jb*blockDim.x+threadIdx.x]; /* Cache ONE particle position */
     __syncthreads(); // make sure the local cache is updated and visible to all threads
@@ -78,6 +78,7 @@ __global__ void nbody_kern(float4* pos_old,
   p += dt*v + 0.5f*dt*dt*a ;
   v += dt*a ;
 
+  // update global memory
   pos_new[gti] = p;
   vel[gti] = v;
 
@@ -349,6 +350,8 @@ main(int argc, char **argv)
 
 #ifdef DUMP
   savestate("current.dat", pos1, vel, nparticle, iter+nstep_start);
+#else // DUMP 
+  savestate("final.dat", pos1, vel, nparticle, iter+nstep_start);
 #endif // DUMP
 
   free(pos1);
