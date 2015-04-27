@@ -7,54 +7,64 @@
 #include <stdlib.h>
 #include <cuda.h>
 #include <math.h>
-#include <cutil.h>
-#include <cutil_math.h>
+//#include <cutil.h>
+//#include <cutil_math.h>
+
+#include "CudaMath.h"
+
+#define CUDA_SAFE_CALL(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, 
+		      bool abort=true) 
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, 
+	      line);
+      if (abort) exit(code);
+   }
+}
 
 
 
-#ifdef __APPLE__
-#include <mach/mach_time.h>
-#else
 #include <sys/time.h>
-#endif
 
-#define NBLOCKS 16
-#define NTHREADS 256
+#define NBLOCKS 32
+#define NTHREADS 128
 #define OUTPUT_PATH "/var/tmp/wittich"
 
-__global__ void nbody_kern(const float dt1, const float eps,
-			 float4* pos_old,
-			 float4* pos_new,
-			 float4* vel ) 
+__global__ void nbody_kern(float4* pos_old,
+			   float4* pos_new,
+			   float4* vel ) 
 {
+  const float dt1 = 0.001f;
+  const float eps = 0.001f;
   const float4 dt = make_float4(dt1,dt1,dt1,0.0f);
 
-  const int nt = NTHREADS;
-  const int nb = NBLOCKS;
+  const int nt = blockDim.x;
+  const int nb = gridDim.x;
 
-  int gti = blockIdx.x * NTHREADS + threadIdx.x;
+
+  const int gti = blockIdx.x * blockDim.x + threadIdx.x;
 
 
   float4 p = pos_old[gti];
   float4 v = vel[gti];
   float4 a = make_float4(0.0f,0.0f,0.0f,0.0f);
-  //#define DUMB // - no cachinga
-#ifndef DUMB
-  int ti = threadIdx.x;
-  __shared__ float4 pblock[NTHREADS];
+  const int ti = threadIdx.x;
+  //__shared__ float4 pblock[NTHREADS];
+  extern __shared__ float4 pblock[];
 
-  for(int jb=0; jb < nb; jb++) { //foreach block
+  for(short jb=0; jb < nb; ++jb) { //foreach block
 
     pblock[ti] = pos_old[jb*nt+ti]; /* Cache ONE particle position */
     __syncthreads(); // make sure the local cache is updated and visible to all threads
 
-#pragma unroll 1 // turn off unrolling
-//#pragma unroll  // turn on unrolling
-    for(int j=0; j<nt; ) { /* For ALL cached particle positions ... */
+#pragma unroll 16  // turn on unrolling
+    for(short j=0; j<nt; ) { /* For ALL cached particle positions ... */
       float4 p2 = pblock[j]; /* Read a cached particle position */
       float4 d = p2 - p;
-      float invr = rsqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps );
-      float f = p2.w*invr*invr*invr; // this is actually f/(r^3 m_1), assume G = 1
+      const float invr = rsqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps );
+      const float f = p2.w*invr*invr*invr; // this is actually f/(r^3 m_1), assume G = 1
       // d is direction btw two but not a unit vector
       // extra powers of invr above take care of length
       a += f*d; /* Accumulate acceleration */
@@ -63,18 +73,6 @@ __global__ void nbody_kern(const float dt1, const float eps,
 
     __syncthreads(); // sync again before updating cache to next block
   }
-#else
-  for(int j=0; j < nb*nt; ++j) { //foreach particle
-    float4 p2 = pos_old[j]; // from global memory
-    float4 d = p2 - p;
-    float invr = 1.0f/sqrt(d.x*d.x + d.y*d.y + d.z*d.z + eps );
-    float f = p2.w*invr*invr*invr; // this is actually f/(r^3 m_1), assume G = 1
-    // d is direction btw two but not a unit vector
-    // extra powers of invr above take care of length
-    a += f*d; /* Accumulate acceleration */
-  }
-
-#endif // DUMB
   p += dt*v + 0.5f*dt*dt*a ;
   v += dt*a ;
 
@@ -113,20 +111,27 @@ main(int argc, char **argv)
 
   signal(SIGINT, siginthandler);
 
+  int nthreads = NTHREADS;
+  int nblocks = NBLOCKS;
+
+  if ( argc == 3 ) {
+    nthreads = atoi(argv[1]);
+    nblocks  = atoi(argv[2]);
+  }
+  printf("Nthreads = %d, nblocks = %d\n", nthreads, nblocks);
+
 
   // steering inputs
 
   //int step,burst;
 
-  int nparticle = NTHREADS*NBLOCKS; 
+  int nparticle = nthreads*nblocks; 
   //int nparticle = 1024; // nice power of 2 for simplicity
-  const size_t nstep = 2*1250;
+  const size_t nstep = 40;
   //const size_t nstep = 50;
   int nburst = 128; // sub-steps
   //int nburst = 1; // sub-steps
 
-  float dt = 0.001;
-  float eps = 0.001;
 
   // create arrays -- host
   float4 *pos1 = 0;
@@ -137,7 +142,7 @@ main(int argc, char **argv)
   float4 *pos2_d = 0;
   float4 *vel_d  = 0 ;
   int nstep_start = 0;
-  if ( argc == 1 ) {
+  if ( argc == 1||1 ) { // turn off reading in
     pos1 = (float4*)malloc(sizeof(float4)*nparticle);
     pos2 = (float4*)malloc(sizeof(float4)*nparticle);
     vel  = (float4*)malloc(sizeof(float4)*nparticle);
@@ -202,25 +207,37 @@ main(int argc, char **argv)
     pos2 = (float4*)malloc(sizeof(float4)*nparticle);
 
   }
+#ifdef DUMP
   writeDat("start.bmp", (void*)pos1, nparticle);
+#endif // DUMP
 
   int which = 8;
   printf("Start: particle %d x=%f, y=%f, z=%f, m=%f\n",
 	 which, pos1[which].x, pos1[which].y, pos1[which].z, pos1[which].w);
   float4 startpos = pos1[which];
 
-  // for ( int j =120; j < 130; ++j ) {
-  //   printf("Start1:   particle %d x=%f, y=%f, z=%f, m=%f\n",
-  // 	   j, pos1[j].x, pos1[j].y, pos1[j].z, pos1[j].w);
-  // }
-  // for ( int j =120; j < 130; ++j ) {
-  //   printf("Start2:   particle %d x=%f, y=%f, z=%f, m=%f\n",
-  // 	   j, pos2[j].x, pos2[j].y, pos2[j].z, pos2[j].w);
-  // }
-  // for ( int j =120; j < 130; ++j ) {
-  //   printf("Start3:   particle %d x=%f, y=%f, z=%f, m=%f\n",
-  // 	   j, vel[j].x, vel[j].y, vel[j].z, vel[j].w);
-  // }
+
+  int num_devices, device;
+  CUDA_SAFE_CALL(cudaGetDeviceCount(&num_devices));
+  printf("This many devices: %d\n", num_devices);
+  int max_multiprocessors = -1, max_device = -1;
+  cudaDeviceProp best_prop;
+  for ( device = 0; device < num_devices; ++device ) {
+    cudaDeviceProp properties;
+    CUDA_SAFE_CALL(cudaGetDeviceProperties(&properties, device));
+    if ( max_multiprocessors < properties.multiProcessorCount ) {
+      max_multiprocessors = properties.multiProcessorCount;
+      max_device = device;
+      best_prop = properties;
+    }
+  }
+  if ( max_device >=0 )
+    cudaSetDevice(max_device);
+  else  {
+    printf("problem finding a good device! aborting.\n");
+    return 1;
+  }
+  printf("# Running on device %d (name %s)\n", max_device, best_prop.name);
 
 
   CUDA_SAFE_CALL(cudaMalloc((void **) &pos1_d, sizeof(float4)*nparticle));   // Allocate array on device
@@ -252,46 +269,28 @@ main(int argc, char **argv)
       break;
     }
 
-    printf("iter=%d\n", iter);
+    printf("iter=%d of %d\n", iter, nstep);
     int             k;
 
-#ifdef __APPLE__
-    uint64_t        t0, t1, t2;
-    t0 = t1 = mach_absolute_time();
-#else // linux
     struct timeval t0r, t1r;
     double t0, t1;
     gettimeofday(&t0r, NULL);
     t0 =  t0r.tv_sec*1000000 + (t0r.tv_usec);
-#endif // !APPLE
     for (k = 0; k < nburst; k++) {
-      //printf("k=%d\n", k);
-      // I think this is a blocking call
       if ( k%2==0 ) {
-	nbody_kern<<<NBLOCKS,NTHREADS>>>(dt, eps, pos1_d,pos2_d,vel_d);
+	// third argument is the size of the shared memory space
+	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos1_d,pos2_d,vel_d);
       } else {
-	nbody_kern<<<NBLOCKS,NTHREADS>>>(dt, eps, pos2_d,pos1_d,vel_d);
+	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos2_d,pos1_d,vel_d);
       }
 
 
     }
     CUDA_SAFE_CALL(cudaDeviceSynchronize());
-    CUT_CHECK_ERROR("kernel invocation");
-    //clFinish(queue);
-#ifdef __APPLE__
-    t2 = mach_absolute_time();
-    struct mach_timebase_info info;
-    mach_timebase_info(&info);
-    double          t = 1e-9 * (t2 - t1) * info.numer / info.denom;
-#else 
     gettimeofday(&t1r, NULL);
     t1 =  t1r.tv_sec*1000000 + (t1r.tv_usec);
     double t = (t1-t0)/1e6;
-#endif // 
-    //printf("done.\n");
-    //Calculate the total bandwidth that was obtained on the device for all  memory transfers
-    //
-    printf("Time spent = %g\n", t/(1.*nburst));
+
 
     tavg_0 += t/nburst;
     tsqu_0 += t*t/(nburst*nburst);
@@ -323,31 +322,20 @@ main(int argc, char **argv)
     printf("End:   particle %d x=%f, y=%f, z=%f, m=%f\n",
 	   which, pos2[which].x, pos2[which].y, pos2[which].z, pos2[which].w);
 
-    // for ( int j =120; j < 130; ++j ) {
-    //   printf("End2:   particle %d x=%f, y=%f, z=%f, m=%f\n",
-    // 	   j, pos1[j].x, pos1[j].y, pos1[j].z, pos1[j].w);
-    // }
-
-    // for ( int j =120; j < 130; ++j ) {
-    //   printf("End2:   particle %d x=%f, y=%f, z=%f, m=%f\n",
-    // 	   j, pos2[j].x, pos2[j].y, pos2[j].z, pos2[j].w);
-    // }
-
-    // for ( int j =120; j < 130; ++j ) {
-    //   printf("End3:   particle %d x=%f, y=%f, z=%f, m=%f\n",
-    // 	   j, vel[j].x, vel[j].y, vel[j].z, vel[j].w);
-    // }
 
     float4 endpos = pos1[which];
   
     float4 sep = make_float4(endpos.x-startpos.x,endpos.y-startpos.y,endpos.z-startpos.z,0);
     float distance = sqrt(sep.x*sep.x + sep.y*sep.y + sep.z*sep.z);
-    //printf("Distance travelled = %g\n", distance);
+    printf("Distance travelled = %g\n", distance);
 
+#ifdef DUMP
     char fname[256];
     sprintf(fname,  "%s/test_%d.bmp", OUTPUT_PATH , iter+nstep_start);
     writeDat(fname, (void*)pos1, nparticle);
+#endif // DUMP
   }
+
 
   double tavg = tavg_0/(iter);
   double trms = sqrt((tsqu_0- tavg_0*tavg_0/(1.*iter))/(iter-1.0));
@@ -431,20 +419,6 @@ void writeDat(const char* fname, void* data, int ndata)
     }
   }
 
-  // int pos = height/2;
-  // printf("pos = %d\n", pos);
-  // for ( int i = 0; i < width; ++i ) {
-  //   for (int j = -10; j < 10; ++j ) {
-  //     vals[pos+j][i].r = 255;
-  //     vals[pos+j][i].g = 255;
-  //     vals[pos+j][i].b = 255;
-  //   }
-  //   //printf("%d,%d,%d,%d\n", i, vals[i][pos].r, vals[i][pos].g, vals[i][pos].b);
-  // }
-
-  
-
-
   float4 *cdata = (float4*)data;
   int cnt = 0;
   for ( int i = 0; i < ndata; ++i ) {
@@ -465,13 +439,10 @@ void writeDat(const char* fname, void* data, int ndata)
   }
   printf("File written (%d particles).\n", cnt);
 
-  // for ( int i = 0; i < ndata; ++i ) 
-  //   fprintf(fout, "%f %f %f\n", cdata[i].x,cdata[i].y,cdata[i].z);
   
   fwrite(header, sizeof(char), header_size, fout);
   fwrite(dib_header, sizeof(char), dib_header_size, fout);
   fwrite(vals, sizeof(struct rgb_t), width*height, fout);
-  //fwrite(cdata, sizeof(float4), ndata, fout);
 
   fclose(fout);
   return;

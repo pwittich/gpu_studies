@@ -19,7 +19,7 @@ GENCODE_FLAGS   :=  $(GENCODE_SM35)
 NVCC = nvcc
 #NVCCFLAGS = -O3 $(INCFLAG) --ptxas-options=-v -use_fast_math $(GENCODE_FLAGS)
 #NVCCFLAGS = -O3 $(INCFLAG)  -use_fast_math $(GENCODE_FLAGS)
-NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v
+NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v 
 #NVCCFLAGS = -g $(INCFLAG) --verbose $(GENCODE_SM20) #-DTHRUST_DEBUG
 
 #NVCCFLAGS = -O3 $(INCFLAG)  --use_fast_math $(GENCODE_SM13) #use to compile on l2gpu with GTX285
