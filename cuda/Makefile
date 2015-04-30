@@ -34,7 +34,10 @@ NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo
 %.o: %.cu
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
-all: nbody test nbody_nothrust
+all: nbody test nbody_nothrust mtest
+
+mtest: mtest.o
+	$(NVCC) $(NVCCFLAGS) $^ -o $@ 
 
 
 nbody: nbody.o
