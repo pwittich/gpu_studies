@@ -28,6 +28,9 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 
 #include <sys/time.h>
 
+
+
+
 #define NBLOCKS 32
 #define NTHREADS 128
 #define OUTPUT_PATH "/var/tmp/wittich"
@@ -297,6 +300,16 @@ main(int argc, char **argv)
     cudaEventDestroy( start );
     cudaEventDestroy( stop );
 
+    cudaThreadSynchronize();
+    
+    // check for error. this catches a kernel launch error
+    cudaError_t error = cudaGetLastError();
+    if(error != cudaSuccess) {
+      // print the CUDA error message and exit
+      printf("CUDA error: %s\n", cudaGetErrorString(error));
+      exit(-1);
+    }
+    
 
     tavg_0 += t/nburst;
     tsqu_0 += t*t/(nburst*nburst);
@@ -308,19 +321,24 @@ main(int argc, char **argv)
 
     // do this on the device?
     if ( iter%25==0 ) {    
+
+
+      // float4 ptotal = thrust::reduce(d_vel.begin(), d_vel.end(), make_float4(0.,0.,0.,0.),
+      // 				     f2());
+
       // get velocities
       CUDA_SAFE_CALL(cudaMemcpy(vel, vel_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
       printf("End:   vel %d x=%f, y=%f, z=%f, m=%f\n",
-	     which, vel[which].x, vel[which].y, vel[which].z, vel[which].w);
+      	     which, vel[which].x, vel[which].y, vel[which].z, vel[which].w);
 
       // calculate total momentum
-      float4 ptotv = make_float4(0.,0.,0.,0.);
+      float4 ptotal = make_float4(0.,0.,0.,0.);
       for ( int i = 0; i < nparticle; ++i ) {
-	ptotv.x += pos1[i].w*vel[i].x;
-	ptotv.y += pos1[i].w*vel[i].y;
-	ptotv.z += pos1[i].w*vel[i].z;
+      	ptotal.x += pos1[i].w*vel[i].x;
+      	ptotal.y += pos1[i].w*vel[i].y;
+      	ptotal.z += pos1[i].w*vel[i].z;
       }
-      float ptot = sqrt(ptotv.x*ptotv.x+ptotv.y*ptotv.y+ptotv.z*ptotv.z);
+      float ptot = sqrt(ptotal.x*ptotal.x+ptotal.y*ptotal.y+ptotal.z*ptotal.z);
       printf("\t\tptot = %5.3f\n", ptot);
     }
 
