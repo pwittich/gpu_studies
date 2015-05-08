@@ -17,14 +17,10 @@ GENCODE_SM352   := -gencode=arch=compute_35,code=compute_35
 GENCODE_FLAGS   :=  $(GENCODE_SM35)
 
 NVCC = nvcc
-#NVCCFLAGS = -O3 $(INCFLAG) --ptxas-options=-v -use_fast_math $(GENCODE_FLAGS)
-#NVCCFLAGS = -O3 $(INCFLAG)  -use_fast_math $(GENCODE_FLAGS)
-NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo
-#NVCCFLAGS = -g $(INCFLAG) --verbose $(GENCODE_SM20) #-DTHRUST_DEBUG
+#NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11
+NVCCFLAGS = -G -g $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11
 
-#NVCCFLAGS = -O3 $(INCFLAG)  --use_fast_math $(GENCODE_SM13) #use to compile on l2gpu with GTX285
-#NVCCFLAGS = -O3 $(INCFLAG)  --use_fast_math $(GENCODE_SM20)
-#NVCCFLAGS = -g -lineinfo -DTHRUST_DEBUG   $(INCFLAG)   $(GENCODE_FLAGS) #-Xcompiler "-std=c++11"
+CXXFLAGS = $(INCFLAG) -std=c++11
 
 
 #LIBS=-L/home/wittich/src/cudpp_install_2.0/lib -lcudpp
@@ -47,6 +43,8 @@ nbody_nothrust: nbody_nothrust.o
 
 test: test.o
 	$(NVCC) $^ -o $@ 
+m2: m2.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ 
 
 
 clean:
@@ -57,4 +55,30 @@ depend:
 
 # DO NOT DELETE
 
+mtest.o: Matriplex.h
 nbody.o: timer.h cuda_math.h
+nbody_nothrust.o: /usr/include/sys/stat.h /usr/include/features.h
+nbody_nothrust.o: /usr/include/sys/cdefs.h /usr/include/bits/wordsize.h
+nbody_nothrust.o: /usr/include/gnu/stubs.h /usr/include/gnu/stubs-64.h
+nbody_nothrust.o: /usr/include/bits/types.h /usr/include/bits/typesizes.h
+nbody_nothrust.o: /usr/include/time.h /usr/include/bits/stat.h
+nbody_nothrust.o: /usr/include/sys/types.h /usr/include/endian.h
+nbody_nothrust.o: /usr/include/bits/endian.h /usr/include/bits/byteswap.h
+nbody_nothrust.o: /usr/include/sys/select.h /usr/include/bits/select.h
+nbody_nothrust.o: /usr/include/bits/sigset.h /usr/include/bits/time.h
+nbody_nothrust.o: /usr/include/sys/sysmacros.h
+nbody_nothrust.o: /usr/include/bits/pthreadtypes.h /usr/include/stdio.h
+nbody_nothrust.o: /usr/include/libio.h /usr/include/_G_config.h
+nbody_nothrust.o: /usr/include/wchar.h /usr/include/bits/stdio_lim.h
+nbody_nothrust.o: /usr/include/bits/sys_errlist.h /usr/include/stdlib.h
+nbody_nothrust.o: /usr/include/bits/waitflags.h
+nbody_nothrust.o: /usr/include/bits/waitstatus.h /usr/include/alloca.h
+nbody_nothrust.o: /usr/include/math.h /usr/include/bits/huge_val.h
+nbody_nothrust.o: /usr/include/bits/huge_valf.h /usr/include/bits/huge_vall.h
+nbody_nothrust.o: /usr/include/bits/inf.h /usr/include/bits/nan.h
+nbody_nothrust.o: /usr/include/bits/mathdef.h /usr/include/bits/mathcalls.h
+nbody_nothrust.o: CudaMath.h /usr/include/sys/time.h /usr/include/signal.h
+nbody_nothrust.o: /usr/include/bits/signum.h /usr/include/bits/siginfo.h
+nbody_nothrust.o: /usr/include/bits/sigaction.h
+nbody_nothrust.o: /usr/include/bits/sigcontext.h /usr/include/bits/sigstack.h
+nbody_nothrust.o: /usr/include/sys/ucontext.h /usr/include/bits/sigthread.h
