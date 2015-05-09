@@ -17,8 +17,8 @@ GENCODE_SM352   := -gencode=arch=compute_35,code=compute_35
 GENCODE_FLAGS   :=  $(GENCODE_SM35)
 
 NVCC = nvcc
-#NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11
-NVCCFLAGS = -G -g $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11
+NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11
+#NVCCFLAGS = -G -g $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11
 
 CXXFLAGS = $(INCFLAG) -std=c++11
 

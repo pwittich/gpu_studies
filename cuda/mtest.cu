@@ -47,7 +47,7 @@ __global__ void matrixkern(const T *d1,
 
   // convert random data to matriplex
   for ( idx_t i = gti; i < N; i += gStride ) {
-    printf("gti = %d, i = %d, dest = %p\n", gti, i, d1);
+    //printf("gti = %d, i = %d, dest = %p\n", gti, i, d1);
     d_matrices1.CopyIn(i, d1+i*d_matrices1.kSize);
     d_matrices2.CopyIn(i, d2+i*d_matrices2.kSize);
   }
@@ -94,7 +94,7 @@ int main()
   const int DIM2 = 2;
   const int DIM3 = 4;
   //const int N = 103-6;
-  const int N = 103;
+  const int N = 1030;
   const int nmatrix1 = DIM1*DIM2*N;
   const int nmatrix2 = DIM2*DIM3*N;
   const int nmatrixres = DIM1*DIM3*N;
@@ -108,9 +108,9 @@ int main()
   float *mat1 = 0;
   float *mat2 = 0;
   float *mat3 = 0;
-  cudaMallocManaged(&mat1, nmatrix1*sizeof(float)); // data is actually on the device
-  cudaMallocManaged(&mat2, nmatrix2*sizeof(float));
-  cudaMallocManaged(&mat3, nmatrixres*sizeof(float));
+  cudaMalloc(&mat1, nmatrix1*sizeof(float)); // data is actually on the device
+  cudaMalloc(&mat2, nmatrix2*sizeof(float));
+  cudaMalloc(&mat3, nmatrixres*sizeof(float));
   // these give API errors: 
   // ========= CUDA-MEMCHECK
   // ========= Program hit cudaErrorInvalidValue (error 11) due to "invalid argument" on CUDA API call to cudaMemset.
@@ -197,16 +197,16 @@ int main()
     h_matrices2.CopyIn(i, h_pos2.data()+i*h_matrices2.kSize);
   }
 
-  cudaDeviceSynchronize();
-  printf("hello 1\n");
-  for ( int i  = 0; i < nmatrix1; ++i ) {
-    std::cout << "mat1: " << h_matrices1.fArray[i] 
-	      << "\t" << mat1[i]
-	      << std::endl;
-  }
-  for ( int i  = 0; i < nmatrix2; ++i ) {
-    std::cout << "mat2: " << h_matrices2.fArray[i] << std::endl;
-  }
+  // cudaDeviceSynchronize();
+  // printf("hello 1\n");
+  // for ( int i  = 0; i < nmatrix1; ++i ) {
+  //   std::cout << "mat1: " << h_matrices1.fArray[i] 
+  // 	      << "\t" << mat1[i]
+  // 	      << std::endl;
+  // }
+  // for ( int i  = 0; i < nmatrix2; ++i ) {
+  //   std::cout << "mat2: " << h_matrices2.fArray[i] << std::endl;
+  // }
 
  Matriplex::Matriplex<float, DIM1, DIM3, N> h_result;
  MultiplyGeneral(h_matrices1, h_matrices2, h_result);
@@ -215,7 +215,7 @@ int main()
     h_result.CopyOut(i, mres+i*(h_result.kSize));
 
   // result is now in d_fres
-  matrixkern<float, DIM1, DIM2, DIM3,N><<<1,32>>>(d_f1,d_f2, mat1, mat2, mat3,
+  matrixkern<float, DIM1, DIM2, DIM3,N><<<26,32>>>(d_f1,d_f2, mat1, mat2, mat3,
 						    d_fres );
   //cudaThreadSynchronize();
   cudaDeviceSynchronize();
@@ -229,25 +229,25 @@ int main()
   // copy result back
   CUDA_SAFE_CALL(cudaMemcpy(mres_gpu,d_fres,sizeof(float)*nmatrixres, cudaMemcpyDeviceToHost));
 
-  cudaDeviceSynchronize();
-  printf("hello 2\n");
-  for ( int i  = 0; i < nmatrix1; ++i ) {
-    std::cout << "mat1: " << h_matrices1.fArray[i] 
-	      << "\t" << mat1[i]
-	      << std::endl;
-  }
-  printf("hello 3\n");
-  for ( int i  = 0; i < nmatrix2; ++i ) {
-    std::cout << "mat2: " << h_matrices2.fArray[i] 
-	      << "\t" << mat2[i]
-	      << std::endl;
-  }
-  printf("hello 4\n");
-  for ( int i  = 0; i < nmatrixres; ++i ) {
-    std::cout << "mat3: " << h_result.fArray[i] 
-	      << "\t" << mat3[i]
-	      << std::endl;
-  }
+  //cudaDeviceSynchronize();
+  // printf("hello 2\n");
+  // for ( int i  = 0; i < nmatrix1; ++i ) {
+  //   std::cout << "mat1: " << h_matrices1.fArray[i] 
+  // 	      << "\t" << mat1[i]
+  // 	      << std::endl;
+  // }
+  // printf("hello 3\n");
+  // for ( int i  = 0; i < nmatrix2; ++i ) {
+  //   std::cout << "mat2: " << h_matrices2.fArray[i] 
+  // 	      << "\t" << mat2[i]
+  // 	      << std::endl;
+  // }
+  // printf("hello 4\n");
+  // for ( int i  = 0; i < nmatrixres; ++i ) {
+  //   std::cout << "mat3: " << h_result.fArray[i] 
+  // 	      << "\t" << mat3[i]
+  // 	      << std::endl;
+  // }
 
 
   printf("i:cpu\tgpu\n");

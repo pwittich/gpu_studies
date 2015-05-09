@@ -131,6 +131,7 @@ namespace Matriplex
    {
      for (idx_t n = offset; n < N; n += stride)
        {
+#pragma unroll
 	 for (idx_t i = 0; i < D1; ++i)
 	   {
 	     for (idx_t j = 0; j < D3; ++j)
@@ -142,7 +143,7 @@ namespace Matriplex
 		 //   {
 		 //     C.fArray[ijo + nn] = 0;
 		 //   }
-
+#pragma unroll
 		 for (idx_t k = 0; k < D2; ++k)
 		   {
 		     const idx_t iko = N * (i * D2 + k);

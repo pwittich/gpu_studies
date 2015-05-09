@@ -4,8 +4,9 @@ import shutil
 import subprocess 
 #import matplotlib as plt
 
+# max 1024 on K20m
 nthreads = 1024
-nblocks = 16
+nblocks = 13
 
 values = []
 
@@ -28,4 +29,5 @@ while ( nthreads >= 32 ) :
     nthreads = nthreads/2
     nblocks = nblocks * 2
 
+print '\n\n\n\n'
 print values
