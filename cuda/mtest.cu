@@ -31,19 +31,47 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 template<typename T, idx_t DIM1, idx_t DIM2, idx_t DIM3, idx_t N>
 __global__ void matrixkern(const T *d1, 
 			   const T *d2,
-			   T *m1, 
-			   T *m2,
-			   T *m3,
 			   T *d3) 
 {
   const int gti = blockIdx.x * blockDim.x + threadIdx.x;
   const int gStride = blockDim.x * gridDim.x;
 
+
+  __shared__ float *m1, *m2, *m3;
+
+  // allocate memory locally
+  if ( threadIdx.x == 0 ) {
+     m1 = (float*) malloc(DIM1*DIM2*N*sizeof(float));
+     m2 = (float*) malloc(DIM2*DIM3*N*sizeof(float));
+     m3 = (float*) malloc(DIM1*DIM3*N*sizeof(float));
+     if ( m1 ) 
+       memset(m1, 0, DIM1*DIM2*N*sizeof(float));
+     if ( m2 ) 
+       memset(m2, 0, DIM2*DIM3*N*sizeof(float));
+     if ( m3 ) 
+       memset(m3, 0, DIM1*DIM3*N*sizeof(float));
+     
+    // // malloc one branch, set pointers by hand
+    // int totsize = (DIM1*DIM2 + DIM2*DIM3 + DIM1*DIM3)*N*sizeof(float);
+    // m1 = (float*) malloc(totsize);
+    // m2 = m1 + DIM1*DIM2*N;
+    // m3 = m2 + DIM2*DIM3*N;
+    
+    // // need to clear the memory.Remember this works on bytes, not floats.
+    // if ( m1 ) 
+    //   memset(m1, 0, totsize);
+  }
+  __syncthreads();
+  // all threads exit if malloc fails
+  if ( m1 == NULL || m2 == NULL || m3 == NULL ) {
+    if ( threadIdx.x == 0 ) printf("malloc failed in block %d\n", blockIdx.x);
+    return;
+  }
+
   // copy data into matriplex
   Matriplex::MPlex<float, DIM1, DIM2, N> d_matrices1(m1);
   Matriplex::MPlex<float, DIM2, DIM3, N> d_matrices2(m2);
 
-  // need to clear the memory
 
   // convert random data to matriplex
   for ( idx_t i = gti; i < N; i += gStride ) {
@@ -60,6 +88,12 @@ __global__ void matrixkern(const T *d1,
   for ( idx_t i = gti; i < N; i += gStride ) 
     d_result.CopyOut(i, d3+i*d_result.kSize);
 
+  // one thread to clear them all
+  if ( threadIdx.x == 0 ) {
+     free(m1);
+     free(m2);
+     free(m3);
+  }
   
 }
 
@@ -90,14 +124,31 @@ int main()
   }
   printf("# Running on device %d (name %s)\n", max_device, best_prop.name);
 
+  // set the memory limits on the device
+
+  const int NBLOCKS = 26;
   const int DIM1 = 3;
   const int DIM2 = 2;
   const int DIM3 = 4;
   //const int N = 103-6;
-  const int N = 1030;
+  const int N = 5332;
   const int nmatrix1 = DIM1*DIM2*N;
   const int nmatrix2 = DIM2*DIM3*N;
   const int nmatrixres = DIM1*DIM3*N;
+  printf("Size of memory required: %5.1f kB\n",
+	 NBLOCKS * sizeof(float)*(nmatrix1+nmatrix2+nmatrixres)/1024.);
+
+  // get the heap size
+  size_t curSize = 0;
+  cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
+  curSize *=5.0;
+  cudaError_t err = cudaDeviceSetLimit(cudaLimitMallocHeapSize, curSize);
+  if ( err != cudaSuccess ) {
+    printf("failed to set heap size to %d\n", curSize);
+    return 1;
+  }
+  cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
+  printf("Current size: %5.0f kB\n", curSize/1024.);
 
   // fill matrices with random data
   float mres[nmatrixres];
@@ -105,22 +156,6 @@ int main()
   memset(mres, 0,nmatrixres*sizeof(float));
   memset(mres_gpu, 0,nmatrixres*sizeof(float));
 
-  float *mat1 = 0;
-  float *mat2 = 0;
-  float *mat3 = 0;
-  cudaMalloc(&mat1, nmatrix1*sizeof(float)); // data is actually on the device
-  cudaMalloc(&mat2, nmatrix2*sizeof(float));
-  cudaMalloc(&mat3, nmatrixres*sizeof(float));
-  // these give API errors: 
-  // ========= CUDA-MEMCHECK
-  // ========= Program hit cudaErrorInvalidValue (error 11) due to "invalid argument" on CUDA API call to cudaMemset.
-  // no idea why
-  cudaMemset(mat1, 0, nmatrix1*sizeof(float));
-  cudaMemset(mat2, 0, nmatrix2*sizeof(float));
-  cudaMemset(mat3, 0, nmatrixres*sizeof(float));
-  // thrust::fill_n(mat1, nmatrix1, 0);
-  // thrust::fill_n(mat2, nmatrix2, 0);
-  // thrust::fill_n(mat3, nmatrixres, 0);
 
 
   cudaDeviceSynchronize();
@@ -141,16 +176,16 @@ int main()
     for (int i = 0; i < DIM1; ++i ) {
       for (int j = 0; j < DIM2; ++j ) {
 	int p = n*(DIM1*DIM2)+i*DIM2+j;
-	printf("n,i,j,p=%d %d %d %d %f\n", n,i,j,p, 100.*n+10*i+j);
+	//printf("n,i,j,p=%d %d %d %d %f\n", n,i,j,p, 100.*n+10*i+j);
 	h_pos1[p] = 100.*n+10*i+j;
-	std::cout << "pos1: " << h_pos1[p] << std::endl;
+	//std::cout << "pos1: " << h_pos1[p] << std::endl;
       }
     }
   }
-  printf("after------\n");
-  for (int i = 0; i < nmatrix1; ++i ) {
-    std::cout << "pos1: "<< i << "\t" << h_pos1[i]  << std::endl;
-  }
+  // printf("after------\n");
+  // for (int i = 0; i < nmatrix1; ++i ) {
+  //   std::cout << "pos1: "<< i << "\t" << h_pos1[i]  << std::endl;
+  // }
 
 
   for (int i = 0; i < nmatrix1; ++i ) {
@@ -197,16 +232,6 @@ int main()
     h_matrices2.CopyIn(i, h_pos2.data()+i*h_matrices2.kSize);
   }
 
-  // cudaDeviceSynchronize();
-  // printf("hello 1\n");
-  // for ( int i  = 0; i < nmatrix1; ++i ) {
-  //   std::cout << "mat1: " << h_matrices1.fArray[i] 
-  // 	      << "\t" << mat1[i]
-  // 	      << std::endl;
-  // }
-  // for ( int i  = 0; i < nmatrix2; ++i ) {
-  //   std::cout << "mat2: " << h_matrices2.fArray[i] << std::endl;
-  // }
 
  Matriplex::Matriplex<float, DIM1, DIM3, N> h_result;
  MultiplyGeneral(h_matrices1, h_matrices2, h_result);
@@ -215,7 +240,7 @@ int main()
     h_result.CopyOut(i, mres+i*(h_result.kSize));
 
   // result is now in d_fres
-  matrixkern<float, DIM1, DIM2, DIM3,N><<<26,32>>>(d_f1,d_f2, mat1, mat2, mat3,
+  matrixkern<float, DIM1, DIM2, DIM3,N><<<NBLOCKS,32>>>(d_f1,d_f2, 
 						    d_fres );
   //cudaThreadSynchronize();
   cudaDeviceSynchronize();
@@ -229,31 +254,12 @@ int main()
   // copy result back
   CUDA_SAFE_CALL(cudaMemcpy(mres_gpu,d_fres,sizeof(float)*nmatrixres, cudaMemcpyDeviceToHost));
 
-  //cudaDeviceSynchronize();
-  // printf("hello 2\n");
-  // for ( int i  = 0; i < nmatrix1; ++i ) {
-  //   std::cout << "mat1: " << h_matrices1.fArray[i] 
-  // 	      << "\t" << mat1[i]
-  // 	      << std::endl;
-  // }
-  // printf("hello 3\n");
-  // for ( int i  = 0; i < nmatrix2; ++i ) {
-  //   std::cout << "mat2: " << h_matrices2.fArray[i] 
-  // 	      << "\t" << mat2[i]
-  // 	      << std::endl;
-  // }
-  // printf("hello 4\n");
-  // for ( int i  = 0; i < nmatrixres; ++i ) {
-  //   std::cout << "mat3: " << h_result.fArray[i] 
-  // 	      << "\t" << mat3[i]
-  // 	      << std::endl;
-  // }
 
 
   printf("i:cpu\tgpu\n");
   for (int i = 0;i<nmatrixres; ++i ) {
     printf("%d: (%d) %8.3f\t%8.3f %s\n", i, int(i/h_result.kSize),mres[i], mres_gpu[i], 
-	   ((mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
+ 	   ((mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
   }
 
    
