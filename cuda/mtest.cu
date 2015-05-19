@@ -41,29 +41,32 @@ __global__ void matrixkern(const T *d1,
 
   // allocate memory locally
   if ( threadIdx.x == 0 ) {
-     m1 = (float*) malloc(DIM1*DIM2*N*sizeof(float));
-     m2 = (float*) malloc(DIM2*DIM3*N*sizeof(float));
-     m3 = (float*) malloc(DIM1*DIM3*N*sizeof(float));
-     if ( m1 ) 
-       memset(m1, 0, DIM1*DIM2*N*sizeof(float));
-     if ( m2 ) 
-       memset(m2, 0, DIM2*DIM3*N*sizeof(float));
-     if ( m3 ) 
-       memset(m3, 0, DIM1*DIM3*N*sizeof(float));
+     // m1 = (float*) malloc(DIM1*DIM2*N*sizeof(float));
+     // m2 = (float*) malloc(DIM2*DIM3*N*sizeof(float));
+     // m3 = (float*) malloc(DIM1*DIM3*N*sizeof(float));
+     // if ( m1 ) 
+     //   memset(m1, 0, DIM1*DIM2*N*sizeof(float));
+     // if ( m2 ) 
+     //   memset(m2, 0, DIM2*DIM3*N*sizeof(float));
+     // if ( m3 ) 
+     //   memset(m3, 0, DIM1*DIM3*N*sizeof(float));
      
-    // // malloc one branch, set pointers by hand
-    // int totsize = (DIM1*DIM2 + DIM2*DIM3 + DIM1*DIM3)*N*sizeof(float);
-    // m1 = (float*) malloc(totsize);
-    // m2 = m1 + DIM1*DIM2*N;
-    // m3 = m2 + DIM2*DIM3*N;
+    // malloc one branch, set pointers by hand
+    int totsize = (DIM1*DIM2 + DIM2*DIM3 + DIM1*DIM3)*N*sizeof(float);
+    m1 = (float*) malloc(totsize);
     
-    // // need to clear the memory.Remember this works on bytes, not floats.
-    // if ( m1 ) 
-    //   memset(m1, 0, totsize);
+    // need to clear the memory.Remember this works on bytes, not floats.
+    if ( m1 ) {
+      memset(m1, 0, totsize);
+      m2 = m1 + DIM1*DIM2*N;
+      m3 = m2 + DIM2*DIM3*N;
+    }
+      
   }
   __syncthreads();
   // all threads exit if malloc fails
-  if ( m1 == NULL || m2 == NULL || m3 == NULL ) {
+  //if ( m1 == NULL || m2 == NULL || m3 == NULL ) {
+  if ( m1 == NULL  ) {
     if ( threadIdx.x == 0 ) printf("malloc failed in block %d\n", blockIdx.x);
     return;
   }
@@ -91,8 +94,8 @@ __global__ void matrixkern(const T *d1,
   // one thread to clear them all
   if ( threadIdx.x == 0 ) {
      free(m1);
-     free(m2);
-     free(m3);
+     // free(m2);
+     // free(m3);
   }
   
 }
