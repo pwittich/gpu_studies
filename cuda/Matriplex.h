@@ -30,6 +30,7 @@ namespace Matriplex
 
      //T fArray[kTotSize] __attribute__((aligned(64)));
      T *fArray;
+     //__shared__ T fArray[kTotSize];
 
 
      __host__

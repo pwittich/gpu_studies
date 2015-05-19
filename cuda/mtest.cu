@@ -27,7 +27,9 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
    }
 }
 
-
+// this approach runs into the 48 kB limit per shared memory
+// for 6x6 matrices this means something like 1300 matrices, so
+// for a matrix muptiplication something like 450 size of matriplex.
 template<typename T, idx_t DIM1, idx_t DIM2, idx_t DIM3, idx_t N>
 __global__ void matrixkern(const T *d1, 
 			   const T *d2,
@@ -36,8 +38,9 @@ __global__ void matrixkern(const T *d1,
   const int gti = blockIdx.x * blockDim.x + threadIdx.x;
   const int gStride = blockDim.x * gridDim.x;
 
+  __shared__ float m1[DIM1*DIM2*N], m2[DIM2*DIM3*N], m3[DIM1*DIM3*N];
 
-  __shared__ float *m1, *m2, *m3;
+#ifdef NOTDEF
 
   // allocate memory locally
   if ( threadIdx.x == 0 ) {
@@ -70,10 +73,10 @@ __global__ void matrixkern(const T *d1,
     if ( threadIdx.x == 0 ) printf("malloc failed in block %d\n", blockIdx.x);
     return;
   }
-
+#endif // NOTDEF
   // copy data into matriplex
-  Matriplex::MPlex<float, DIM1, DIM2, N> d_matrices1(m1);
-  Matriplex::MPlex<float, DIM2, DIM3, N> d_matrices2(m2);
+  Matriplex::MPlex<float, DIM1, DIM2, N> d_matrices1(&(m1[0]));
+  Matriplex::MPlex<float, DIM2, DIM3, N> d_matrices2(&(m2[0]));
 
 
   // convert random data to matriplex
@@ -83,7 +86,7 @@ __global__ void matrixkern(const T *d1,
     d_matrices2.CopyIn(i, d2+i*d_matrices2.kSize);
   }
 
-  Matriplex::Matriplex<float, DIM1, DIM3, N> d_result(m3);
+  Matriplex::Matriplex<float, DIM1, DIM3, N> d_result(&(m3[0]));
   // do matrix multiplication
   MultiplyGeneralStride(d_matrices1, d_matrices2, d_result, gti, gStride);
 
@@ -91,13 +94,14 @@ __global__ void matrixkern(const T *d1,
   for ( idx_t i = gti; i < N; i += gStride ) 
     d_result.CopyOut(i, d3+i*d_result.kSize);
 
+#ifdef NOTDEF
   // one thread to clear them all
   if ( threadIdx.x == 0 ) {
      free(m1);
      // free(m2);
      // free(m3);
   }
-  
+#endif // NOTDEF  
 }
 
 
@@ -134,7 +138,7 @@ int main()
   const int DIM2 = 2;
   const int DIM3 = 4;
   //const int N = 103-6;
-  const int N = 5332;
+  const int N = 332;
   const int nmatrix1 = DIM1*DIM2*N;
   const int nmatrix2 = DIM2*DIM3*N;
   const int nmatrixres = DIM1*DIM3*N;
