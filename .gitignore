@@ -28,6 +28,7 @@
 *.app
 tbb/nbody
 cuda/nbody
+cuda/mtest
 
 # Emacs tmp files
 *~
