@@ -65,12 +65,11 @@ namespace Matriplex
 	 memcpy(fArray, m.fArray, sizeof(T) * kTotSize); return *this;
        }
 
-     __host__ __device__
+     __host__ __device__ inline
      void CopyIn(idx_t n, const T *arr)
      {
-       //printf("copyIn: %p, %p\n", fArray, arr);
+#pragma unroll 
        for (idx_t i = n; i < kTotSize; i += N) {
-	 //printf("2: copyIn: %p, %p, %d %d %d\n", fArray+i, arr,i,kTotSize, id);
 	 fArray[i] = *(arr++);
        }
      }
@@ -157,6 +156,43 @@ namespace Matriplex
 	   }
        }
    } // MutiplyGeneralStride
+
+   template<typename T, idx_t D1, idx_t D2, idx_t D3, idx_t N>
+   __device__
+     void AddGeneralStride(const MPlex<T, D1, D2, N>& A, 
+			   const MPlex<T, D2, D3, N>& B, 
+			   MPlex<T, D1, D3, N>& C, const int offset, const int stride,
+			   const float s1 = 1.0, const float s2 = 1.0)
+   {
+     for (idx_t n = offset; n < N; n += stride)
+       {
+#pragma unroll
+	 for (idx_t i = 0; i < D1; ++i)
+	   {
+	     for (idx_t j = 0; j < D3; ++j)
+	       {
+		 const idx_t ijo = N * (i * D3 + j);
+
+		 // commenting this out assumes these are set to zero before  - pw 
+		 // for (idx_t nn = 0; nn < N; ++nn)
+		 //   {
+		 //     C.fArray[ijo + nn] = 0;
+		 //   }
+#pragma unroll
+		 for (idx_t k = 0; k < D2; ++k)
+		   {
+		     const idx_t iko = N * (i * D2 + k);
+		     const idx_t kjo = N * (k * D3 + j);
+
+		     // C.fArray[i, j, n] += A.fArray[i, k, n] * B.fArray[k, j, n];
+		     C.fArray[ijo + n] += s1*A.fArray[iko + n] + s2*B.fArray[kjo + n];
+		   }
+	       }
+	   }
+       }
+   } // MutiplyGeneralStride
+
+   
 }// namespace
 //------------------------------------------------------------------------------
 
