@@ -96,6 +96,7 @@ __global__ void matrixkern(const T *d1,
 
   // copy result back
   for ( idx_t i = gti; i < N; i += gStride ) 
+    //d_result.CopyOutPlex(i, d3);
     d_result.CopyOut(i, d3+i*d_result.kSize);
 
 #ifdef NOTDEF
@@ -251,7 +252,7 @@ int main()
   printf("i:cpu\tgpu\n");
   for (int i = 0;i<nmatrixres; ++i ) {
     printf("%d: (%d) %8.3f\t%8.3f %s\n", i, int(i/h_result.kSize),mres[i], mres_gpu[i], 
- 	   ((mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
+ 	   (fabs(mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
   }
 
    

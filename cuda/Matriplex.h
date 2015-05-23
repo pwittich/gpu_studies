@@ -82,6 +82,26 @@ namespace Matriplex
 	   *(arr++) = fArray[i];
 	 }
      }
+
+     __device__ 
+     inline
+       void CopyOutPlex(idx_t n, T *arr)
+     {
+       T tmp[kSize];
+       
+       idx_t  j = 0;
+#pragma unroll 
+       for (idx_t i = n; i < kTotSize; i += N, ++j) {
+	 tmp[j] = fArray[i];
+       }
+       // offset into the output array
+       j = n*kSize;
+#pragma unroll 
+       for ( idx_t i = 0; i < kSize; ++ i) {
+	 arr[j+i ] = tmp[i];
+       }
+       
+     }
    };
 
 
@@ -143,6 +163,7 @@ namespace Matriplex
 		 //   {
 		 //     C.fArray[ijo + nn] = 0;
 		 //   }
+		 C.fArray[ijo + n] = 0.f;
 #pragma unroll
 		 for (idx_t k = 0; k < D2; ++k)
 		   {
