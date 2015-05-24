@@ -28,15 +28,12 @@ namespace Matriplex
      };
 
 
-     //T fArray[kTotSize] __attribute__((aligned(64)));
-     T *fArray;
-     //__shared__ T fArray[kTotSize];
+     T fArray[kTotSize]  __attribute__((aligned(64)));
 
 
-     __host__
-       Matriplex()    { fArray = new T[kTotSize];}
-     __device__ __host__
-       Matriplex(T * h) {fArray = h; }
+     __host__ __device__
+       Matriplex()    { }
+
      Matriplex(T v) { SetVal(v); }
 
      idx_t PlexSize() const { return N; }
