@@ -220,10 +220,23 @@ __global__ void matrixkern(const T * __restrict__ d1,
 int main(int argc, char **argv)
 {
   int N = 25600;
-  if ( argc == 2 ) {
+  int NBLOCKS = 13;
+  int NTHREADS = 128; // divisible by 32
+
+  if ( argc >= 2 ) {
     N = atoi(argv[1]);
   }
-  printf("N=%d\n", N);
+  bool done = false;
+  while ( ! done ) {
+    NBLOCKS=int(N/NTHREADS/10);
+    if ( NBLOCKS > 25 ) 
+      NTHREADS *= 2;
+    else
+      done = true;
+    if ( NTHREADS == 1024 ) 
+      done = true;
+  }
+  printf("N=%d, NBLOCKS = %d , NTHREADS = %d\n", N, NBLOCKS, NTHREADS);
 
   int num_devices, device;
   CUDA_SAFE_CALL(cudaGetDeviceCount(&num_devices));
@@ -249,7 +262,6 @@ int main(int argc, char **argv)
 
   // set the memory limits on the device
 
-  const int NBLOCKS = 10;
   const int DIM1 = 3;
   const int DIM2 = 4;
   const int DIM3 = 5;
@@ -258,23 +270,27 @@ int main(int argc, char **argv)
   const int nmatrix2 = DIM2*DIM3*N;
   const int nmatrixres = DIM1*DIM3*N;
   printf("Size of memory required: %5.1f kB\n",
-	 NBLOCKS * sizeof(float)*(nmatrix1+nmatrix2+nmatrixres)/1024.);
+	 sizeof(float)*(nmatrix1+nmatrix2+nmatrixres)/1024.);
 
   // get the heap size
   size_t curSize = 0;
   cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
-  curSize *=5.0;
-  cudaError_t err = cudaDeviceSetLimit(cudaLimitMallocHeapSize, curSize);
+  size_t setSize = sizeof(float)*(nmatrix1+nmatrix2+nmatrixres);
+  cudaError_t err = cudaDeviceSetLimit(cudaLimitMallocHeapSize, setSize);
   if ( err != cudaSuccess ) {
     printf("failed to set heap size to %d\n", curSize);
     return 1;
   }
-  cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
+  err = cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
+  if ( err != cudaSuccess ) {
+    printf("failed to get heap size.\n");
+    return 1;
+  }
   printf("Current size: %5.0f kB\n", curSize/1024.);
 
   // fill matrices with random data
-  float mres[nmatrixres];
-  float mres_gpu[nmatrixres];
+  float *mres = new float[nmatrixres];
+  float *mres_gpu = new float[nmatrixres];
   memset(mres, 0,nmatrixres*sizeof(float));
   memset(mres_gpu, 0,nmatrixres*sizeof(float));
 
@@ -350,11 +366,13 @@ int main(int argc, char **argv)
       if ( pos == N ) break;
       h_result.CopyOut(i, mres+pos*(h_result.kSize));
     } 
-  } // loop over all matrices
+  } // loop over all matrices, CPU
 
+
+  // GPU
   // result is now in d_fres
   for ( int i = 0; i < 10; ++i ) 
-    smallMatrix<float, DIM1, DIM2, DIM3><<<NBLOCKS,32>>>(d_f1,d_f2, d_fres,N );
+    smallMatrix<float, DIM1, DIM2, DIM3><<<NBLOCKS,NTHREADS>>>(d_f1,d_f2, d_fres,N );
   //cudaThreadSynchronize();
   cudaDeviceSynchronize();
   // check for error. this catches a kernel launch error
@@ -372,15 +390,18 @@ int main(int argc, char **argv)
   int mismatches = 0;
   printf("i:cpu\tgpu\n");
   for (int i = 0;i<nmatrixres; ++i ) {
-    printf("%d: (%d) %8.3f\t%8.3f %s\n", i, int(i/h_result.kSize),mres[i], 
-	   mres_gpu[i], (fabs(mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
-    if  (fabs(mres[i]-mres_gpu[i])>1e-3 ) 
+    if  (fabs(mres[i]-mres_gpu[i])>1e-3 ) {
       ++mismatches;
+      printf("%d: (%d) %8.3f\t%8.3f %s\n", i, int(i/h_result.kSize),mres[i], 
+	     mres_gpu[i], (fabs(mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
+    }
   }
   if ( mismatches)
     printf("This many mismatches: %d\n", mismatches);
 
-   
+
+  delete [] mres;
+  delete [] mres_gpu;
   
   return mismatches;
 }
