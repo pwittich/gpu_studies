@@ -320,25 +320,37 @@ int main(int argc, char **argv)
   cudaMemcpyAsync(d_f1, h_f1, sizeof(float)*nmatrix1, cudaMemcpyHostToDevice);
   cudaMemcpyAsync(d_f2, h_f2, sizeof(float)*nmatrix2, cudaMemcpyHostToDevice);
 
-
-
-  Matriplex::MPlex<float, DIM1, DIM2, N> h_matrices1;
-  Matriplex::MPlex<float, DIM2, DIM3, N> h_matrices2;
+  const int CPU_MATRIPLEX_SIZE = 8; // sizeof vector register/sizeof(float)
+  Matriplex::MPlex<float, DIM1, DIM2, CPU_MATRIPLEX_SIZE> h_matrices1;
+  Matriplex::MPlex<float, DIM2, DIM3, CPU_MATRIPLEX_SIZE> h_matrices2;
   memset(h_matrices1.fArray, 0, h_matrices1.kTotSize*sizeof(float));
   memset(h_matrices2.fArray, 0, h_matrices2.kTotSize*sizeof(float));
+  Matriplex::Matriplex<float, DIM1, DIM3, CPU_MATRIPLEX_SIZE> h_result;
+  memset(h_result.fArray, 0, h_result.kTotSize*sizeof(float));
 
-  // // convert random data to matriplex
-  for ( idx_t i = 0; i < N; ++i ) {
-    h_matrices1.CopyIn(i, h_pos1.data()+i*h_matrices1.kSize);
-    h_matrices2.CopyIn(i, h_pos2.data()+i*h_matrices2.kSize);
-  }
+  // loop over 
+  const int niter = (N/CPU_MATRIPLEX_SIZE) + ((N%CPU_MATRIPLEX_SIZE)?1:0);
+  printf("niter = %d %d %d\n", niter, N, CPU_MATRIPLEX_SIZE);
+  for ( int ii = 0; ii < niter; ++ii ) {
+
+    // convert random data to matriplex
+    int pos = CPU_MATRIPLEX_SIZE*ii;
+    for ( idx_t i = 0; i < CPU_MATRIPLEX_SIZE ; ++i, ++pos ) {
+      if ( pos == N ) break;
+      h_matrices1.CopyIn(i, h_pos1.data()+pos*h_matrices1.kSize);
+      h_matrices2.CopyIn(i, h_pos2.data()+pos*h_matrices2.kSize);
+    }
 
 
- Matriplex::Matriplex<float, DIM1, DIM3, N> h_result;
- MultiplyGeneral(h_matrices1, h_matrices2, h_result);
- // convert resulting data from matriplex
-  for ( idx_t i = 0; i < N; ++i ) 
-    h_result.CopyOut(i, mres+i*(h_result.kSize));
+    MultiplyGeneral(h_matrices1, h_matrices2, h_result);
+
+    // convert resulting data from matriplex
+    pos = CPU_MATRIPLEX_SIZE*ii; // reset
+    for ( idx_t i = 0; i < CPU_MATRIPLEX_SIZE; ++i, ++pos ) {
+      if ( pos == N ) break;
+      h_result.CopyOut(i, mres+pos*(h_result.kSize));
+    } 
+  } // loop over all matrices
 
   // result is now in d_fres
   for ( int i = 0; i < 10; ++i ) 
