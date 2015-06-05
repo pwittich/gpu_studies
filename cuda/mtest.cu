@@ -28,33 +28,144 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
    }
 }
 
-// this approach runs into the 48 kB limit per shared memory
+
+template<typename T>
+__global__ void allocMemory(T **memory, size_t n)
+{
+  *memory = (T*)malloc(n*sizeof(T));
+  return;
+}
+
+
+template<typename T>
+__global__ void freeMemory(T **memory)
+{
+  free(*memory);
+  *memory  = 0;
+  return;
+}
+
+static __device__ __forceinline__ unsigned int laneId()
+{
+#ifdef __CUDA_ARCH__
+    unsigned int ret;
+    asm("mov.u32 %0, %laneid;" : "=r"(ret) );
+    return ret;
+#else
+    return 0;
+#endif
+}
+
+template<typename T, idx_t DIM1, idx_t DIM2, idx_t DIM3>
+__global__ void smallMatrix(const T * __restrict__ d1, 
+			    const T * __restrict__ d2,
+			    //			    T * __restrict__ s, // scratch
+			    T * __restrict__ d3,
+			    int N) 
+{
+  // data in remote is stored in matrix-order, so the data is just 
+  // stored with an overall offset
+  const int gti = blockIdx.x * blockDim.x + threadIdx.x;
+  const int gStride = blockDim.x * gridDim.x;
+
+  for ( idx_t gi = gti; gi < N; gi += gStride ) {  
+    // copy data to local scratch area
+    T mat1[DIM1*DIM2];
+    T mat2[DIM2*DIM3];
+  
+    int pos = gi*DIM1*DIM2;
+    for ( int i = 0; i < DIM1*DIM2; ++i ) {
+      mat1[i] = d1[pos++];
+    }
+    pos = gi*DIM2*DIM3;
+    for ( int i = 0; i < DIM2*DIM3; ++i ) {
+      mat2[i] = d2[pos++];
+    }
+
+    // do multiplication
+    T mat3[DIM1*DIM3];
+    for (idx_t i = 0; i < DIM1; ++i) {
+      for (idx_t j = 0; j < DIM3; ++j) {
+	const idx_t ijo = (i * DIM3 + j);
+
+	mat3[ijo] = 0.f;
+#pragma unroll
+	for (idx_t k = 0; k < DIM2; ++k) {
+	  const idx_t iko = (i * DIM2 + k);
+	  const idx_t kjo = (k * DIM3 + j);
+
+	  mat3[ijo ] += mat1[iko ] * mat2[kjo];
+	  //mat3[ijo ] += 100*i+j + 10000*gti;
+	}
+      }
+    }
+
+    // // do shuffle to get data out - warp cooperation
+    // T tmp3[DIM1*DIM3];
+    // // printf("thread %i (laneId %i, warp %d, block %d): calling shuffle_scatter, gi=%i\n", gti,
+    // // 	   laneId(), threadIdx.x/32, blockIdx.x, gi);
+    // shuffle_scatter(mat3, tmp3, DIM1*DIM3, laneId());
+
+    // // copy result out again
+    //pos = gi;//*DIM1*DIM3;
+    //for ( int i = 0; i < DIM1*DIM3; ++i ) {
+    //   printf("thread %i (laneId %i, warp %d): copy %f to %d (i=%d)\n", gti, laneId(),
+    // 	     threadIdx.x/32, tmp3[i], pos,i);
+    // d3[pos] = mat3[i];
+       //   d3[pos] = tmp3[i];
+       //pos += gStride; pos = pos%(N*DIM1*DIM3);
+       //}
+    // copy result out again
+    pos = gi*DIM1*DIM3;
+    for ( int i = 0; i < DIM1*DIM3; ++i, ++pos ) {
+      d3[pos] = mat3[i];
+    }
+  }
+}
+
+
+// this acts on a per-warp basis
+template<typename T>
+void 
+__device__ shuffle_scatter(const T * __restrict__ in,
+			   T * __restrict__ out,
+			   size_t N, int laneid)
+{
+  // based on my laneid, I get data from somewhere else
+  // I have to get N different IDs
+  const int warpSize = 32;
+  int dest = laneid;
+  // N - size of the local matrix
+  for ( int i = 0; i < N; ++i, dest += warpSize ) {
+    const int srcLane = dest/N;
+    const int srcInd  = dest%N;
+    // int __shfl(int var, int srcLane, int width=warpSize);
+    out[i] = __shfl(in[i], srcLane);
+    printf("thread %d: dest = %d, srcLane = %d, srcInd = %d (i=%d) val=%f\n", laneid, dest,
+	   srcLane, srcInd,i, out[i]);
+  }
+  
+}
+
+
+// in approach runs into the 48 kB limit per shared memory
 // for 6x6 matrices this means something like 1300 matrices, so
 // for a matrix muptiplication something like 450 size of matriplex.
 template<typename T, idx_t DIM1, idx_t DIM2, idx_t DIM3, idx_t N>
-__global__ void matrixkern(const T *d1, 
-			   const T *d2,
-			   T *d3) 
+__global__ void matrixkern(const T * __restrict__ d1, 
+			   const T * __restrict__ d2,
+			   T * __restrict__ d3) 
 {
   const int gti = blockIdx.x * blockDim.x + threadIdx.x;
   const int gStride = blockDim.x * gridDim.x;
 
+#define SHAREDMEM
+#ifdef SHAREDMEM
   __shared__ float m1[DIM1*DIM2*N], m2[DIM2*DIM3*N], m3[DIM1*DIM3*N];
-
-#ifdef NOTDEF
-
+#else // SHAREDMEM
+  __shared__ float *m1, *m2, *m3;
   // allocate memory locally
   if ( threadIdx.x == 0 ) {
-     // m1 = (float*) malloc(DIM1*DIM2*N*sizeof(float));
-     // m2 = (float*) malloc(DIM2*DIM3*N*sizeof(float));
-     // m3 = (float*) malloc(DIM1*DIM3*N*sizeof(float));
-     // if ( m1 ) 
-     //   memset(m1, 0, DIM1*DIM2*N*sizeof(float));
-     // if ( m2 ) 
-     //   memset(m2, 0, DIM2*DIM3*N*sizeof(float));
-     // if ( m3 ) 
-     //   memset(m3, 0, DIM1*DIM3*N*sizeof(float));
-     
     // malloc one branch, set pointers by hand
     int totsize = (DIM1*DIM2 + DIM2*DIM3 + DIM1*DIM3)*N*sizeof(float);
     m1 = (float*) malloc(totsize);
@@ -69,50 +180,50 @@ __global__ void matrixkern(const T *d1,
   }
   __syncthreads();
   // all threads exit if malloc fails
-  //if ( m1 == NULL || m2 == NULL || m3 == NULL ) {
   if ( m1 == NULL  ) {
     if ( threadIdx.x == 0 ) printf("malloc failed in block %d\n", blockIdx.x);
     return;
   }
-#endif // NOTDEF
+#endif // SHAREDMEM
   // copy data into matriplex
-  //Matriplex::MPlex<float, DIM1, DIM2, N> d_matrices1(&(m1[0]));
-  //Matriplex::MPlex<float, DIM2, DIM3, N> d_matrices2(&(m2[0]));
   Matriplex::MPlex<float, DIM1, DIM2, N> d_matrices1(m1);
   Matriplex::MPlex<float, DIM2, DIM3, N> d_matrices2(m2);
 
 
   // convert random data to matriplex
   for ( idx_t i = gti; i < N; i += gStride ) {
-    //printf("gti = %d, i = %d, dest = %p\n", gti, i, d1);
     d_matrices1.CopyIn(i, d1+i*d_matrices1.kSize);
     d_matrices2.CopyIn(i, d2+i*d_matrices2.kSize);
   }
 
-  //Matriplex::Matriplex<float, DIM1, DIM3, N> d_result(&(m3[0]));
   Matriplex::Matriplex<float, DIM1, DIM3, N> d_result(m3);
   // do matrix multiplication
   MultiplyGeneralStride(d_matrices1, d_matrices2, d_result, gti, gStride);
 
   // copy result back
   for ( idx_t i = gti; i < N; i += gStride ) 
-    //d_result.CopyOutPlex(i, d3);
-    d_result.CopyOut(i, d3+i*d_result.kSize);
+    d_result.CopyOutPlex(i, d3);
+    //d_result.CopyOut(i, d3+i*d_result.kSize);
 
-#ifdef NOTDEF
+#ifndef SHAREDMEM
   // one thread to clear them all
   if ( threadIdx.x == 0 ) {
      free(m1);
      // free(m2);
      // free(m3);
   }
-#endif // NOTDEF  
+#endif // SHAREDMEM
 }
 
 
 
-int main()
+int main(int argc, char **argv)
 {
+  int N = 25600;
+  if ( argc == 2 ) {
+    N = atoi(argv[1]);
+  }
+  printf("N=%d\n", N);
 
   int num_devices, device;
   CUDA_SAFE_CALL(cudaGetDeviceCount(&num_devices));
@@ -138,12 +249,11 @@ int main()
 
   // set the memory limits on the device
 
-  const int NBLOCKS = 1;
-  const int DIM1 = 4;
+  const int NBLOCKS = 10;
+  const int DIM1 = 3;
   const int DIM2 = 4;
-  const int DIM3 = 4;
+  const int DIM3 = 5;
   //const int N = 103-6;
-  const int N = 256;
   const int nmatrix1 = DIM1*DIM2*N;
   const int nmatrix2 = DIM2*DIM3*N;
   const int nmatrixres = DIM1*DIM3*N;
@@ -212,7 +322,6 @@ int main()
 
 
 
-
   Matriplex::MPlex<float, DIM1, DIM2, N> h_matrices1;
   Matriplex::MPlex<float, DIM2, DIM3, N> h_matrices2;
   memset(h_matrices1.fArray, 0, h_matrices1.kTotSize*sizeof(float));
@@ -233,8 +342,7 @@ int main()
 
   // result is now in d_fres
   for ( int i = 0; i < 10; ++i ) 
-  matrixkern<float, DIM1, DIM2, DIM3,N><<<NBLOCKS,128>>>(d_f1,d_f2, 
-						    d_fres );
+    smallMatrix<float, DIM1, DIM2, DIM3><<<NBLOCKS,32>>>(d_f1,d_f2, d_fres,N );
   //cudaThreadSynchronize();
   cudaDeviceSynchronize();
   // check for error. this catches a kernel launch error
@@ -249,13 +357,18 @@ int main()
 
 
 
+  int mismatches = 0;
   printf("i:cpu\tgpu\n");
   for (int i = 0;i<nmatrixres; ++i ) {
-    printf("%d: (%d) %8.3f\t%8.3f %s\n", i, int(i/h_result.kSize),mres[i], mres_gpu[i], 
- 	   (fabs(mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
+    printf("%d: (%d) %8.3f\t%8.3f %s\n", i, int(i/h_result.kSize),mres[i], 
+	   mres_gpu[i], (fabs(mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
+    if  (fabs(mres[i]-mres_gpu[i])>1e-3 ) 
+      ++mismatches;
   }
+  if ( mismatches)
+    printf("This many mismatches: %d\n", mismatches);
 
    
   
-  return 0;
+  return mismatches;
 }
