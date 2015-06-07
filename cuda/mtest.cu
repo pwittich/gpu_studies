@@ -296,12 +296,18 @@ int main(int argc, char **argv)
 
 
 
-  cudaDeviceSynchronize();
+  //cudaDeviceSynchronize();
 
   // these vectors hold the pre-matriplex matrices
-  std::vector<float> h_pos1(nmatrix1);
-  std::vector<float> h_pos2(nmatrix2);
-  std::fill(h_pos2.begin(), h_pos2.end(),0);
+  // float *h_f1 = new float[nmatrix1];
+  // float *h_f2 = new float[nmatrix2];
+
+  float *h_f1 = 0;
+  float *h_f2 = 0;
+  cudaMallocHost(&h_f1, nmatrix1*sizeof(float));
+  cudaMallocHost(&h_f2, nmatrix2*sizeof(float));
+
+
 
   // space on gpu for the inputs and outputs
   float *d_f1 = 0;
@@ -312,19 +318,17 @@ int main(int argc, char **argv)
   cudaMalloc(&d_f2, nmatrix2*sizeof(float));
   cudaMalloc(&d_fres, nmatrixres*sizeof(float));
 
-  float *h_f1 = &h_pos1[0]; 
-  float *h_f2 = &h_pos2[0]; 
   
 
   srand(123213UL);
 
 
 
-  for ( auto & i : h_pos1 ) {
-    i = rand()*20./RAND_MAX;
+  for ( int i = 0; i < nmatrix1; ++i ) {
+    h_f1[i] = rand()*20./RAND_MAX;
   }
-  for ( auto & i : h_pos2 ) {
-    i = rand()*20./RAND_MAX;
+  for ( int i = 0; i < nmatrix2; ++i ) {
+    h_f2[i] = rand()*20./RAND_MAX;
   }
 
 
@@ -335,6 +339,11 @@ int main(int argc, char **argv)
   printf("copying to GPU .... \n");
   cudaMemcpyAsync(d_f1, h_f1, sizeof(float)*nmatrix1, cudaMemcpyHostToDevice);
   cudaMemcpyAsync(d_f2, h_f2, sizeof(float)*nmatrix2, cudaMemcpyHostToDevice);
+
+  // GPU
+  // result is now in d_fres
+  for ( int i = 0; i < 10; ++i ) 
+    smallMatrix<float, DIM1, DIM2, DIM3><<<NBLOCKS,NTHREADS>>>(d_f1,d_f2, d_fres,N );
 
   const int CPU_MATRIPLEX_SIZE = 8; // sizeof vector register/sizeof(float)
   Matriplex::MPlex<float, DIM1, DIM2, CPU_MATRIPLEX_SIZE> h_matrices1;
@@ -353,8 +362,8 @@ int main(int argc, char **argv)
     int pos = CPU_MATRIPLEX_SIZE*ii;
     for ( idx_t i = 0; i < CPU_MATRIPLEX_SIZE ; ++i, ++pos ) {
       if ( pos == N ) break;
-      h_matrices1.CopyIn(i, h_pos1.data()+pos*h_matrices1.kSize);
-      h_matrices2.CopyIn(i, h_pos2.data()+pos*h_matrices2.kSize);
+      h_matrices1.CopyIn(i, h_f1+pos*h_matrices1.kSize);
+      h_matrices2.CopyIn(i, h_f2+pos*h_matrices2.kSize);
     }
 
 
@@ -369,12 +378,7 @@ int main(int argc, char **argv)
   } // loop over all matrices, CPU
 
 
-  // GPU
-  // result is now in d_fres
-  for ( int i = 0; i < 10; ++i ) 
-    smallMatrix<float, DIM1, DIM2, DIM3><<<NBLOCKS,NTHREADS>>>(d_f1,d_f2, d_fres,N );
   //cudaThreadSynchronize();
-  cudaDeviceSynchronize();
   // check for error. this catches a kernel launch error
   cudaError_t error = cudaGetLastError();
   if(error != cudaSuccess) {
@@ -383,7 +387,8 @@ int main(int argc, char **argv)
      exit(-1);
   }
   // copy result back
-  CUDA_SAFE_CALL(cudaMemcpy(mres_gpu,d_fres,sizeof(float)*nmatrixres, cudaMemcpyDeviceToHost));
+  CUDA_SAFE_CALL(cudaMemcpyAsync(mres_gpu,d_fres,sizeof(float)*nmatrixres, cudaMemcpyDeviceToHost));
+  cudaDeviceSynchronize();
 
 
 
