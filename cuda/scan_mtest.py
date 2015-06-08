@@ -2,14 +2,13 @@
 
 import shutil
 import subprocess 
-#import matplotlib as plt
-
 
 nmat = 1
 
 values = []
 
 def convert(val):
+    """ Unit conversion hack """
     lookup = { 'ns' : 1e-3, 'us' : 1, 'ms' : 1000, 's' : 1000000 }
     unit = val[-2:]
     try:
@@ -17,7 +16,7 @@ def convert(val):
     except ValueError:
         print 'exception!', val[:-2]
         return val
-    print unit
+    #print unit
     if unit in lookup:
         return lookup[unit]*number
     return int(val)
@@ -26,16 +25,27 @@ def convert(val):
 
 
 
-while ( nmat < 1e9 ) :
-    print "nmat = ", nmat
+while ( nmat < 1e8 ) :
+    #print "nmat = ", nmat
     ret = subprocess.check_output(["nvprof", "./mtest", str(nmat)], stderr=subprocess.STDOUT)
     ret = ret.splitlines()
     matches = filter(lambda x:'smallMatrix' in x, ret)
-    print "matches >> ", matches
+    #print "matches >> ", matches
     #print len(ret)
     elem  = matches[0].split()
     #values.append([float(elem[4]),float(elem[5])])
-    values.append([nmat, convert(elem[3]),convert(elem[4])])
+    tavg  = convert(elem[3])
+    tmin = convert(elem[4])
+    matches = filter(lambda x:'DtoH' in x, ret)
+    htod = convert(matches[0].split()[3])
+    matches = filter(lambda x:'HtoD' in x, ret)
+    dtoh = convert(matches[0].split()[3])
+    matches = filter(lambda x:'NBLOCKS' in x, ret)
+    nblocks = int(matches[0].split()[2])
+    nthreads = int(matches[0].split()[4])
+    #print nmat,tavg,tmin,htod,dtoh,nblocks,nthreads
+    tper = 1.0*tavg/nmat
+    values.append([nmat,tavg,tmin,htod,dtoh, tper,nblocks,nthreads])
     convert(elem[3])
     # shutil.copyfile('final.dat','final_%s_%s.dat' % (nthreads, nblocks))
     # try:
@@ -45,12 +55,14 @@ while ( nmat < 1e9 ) :
     nmat = nmat * 10
 
 
-print '\n\n\n\n'
-print values
-print '\n\n\n\n'
+# print '\n\n\n\n'
+# print values
+# print '\n\n\n\n'
 
 for v in values:
-    for fv in v:
-        print fv, '\t',
-    print 
+    print "% 9d\t%8.2f\t%8.2f\t%8.2g\t%8.2g\t%8.2g\t%d\t%d" % tuple(v)
+    # for fv in v:
+    #     print fv, '\t',
+    # print
+
 
