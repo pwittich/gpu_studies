@@ -35,9 +35,9 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 #define NTHREADS 128
 #define OUTPUT_PATH "/var/tmp/wittich"
 
-__global__ void nbody_kern(float4* pos_old,
-			   float4* pos_new,
-			   float4* vel ) 
+__global__ void nbody_kern(float4 * __restrict__ pos_old,
+			   float4 * __restrict__ pos_new,
+			   float4 * __restrict__ vel ) 
 {
   const float dt1 = 0.001f;
   const float eps = 0.001f;
