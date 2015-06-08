@@ -222,24 +222,11 @@ int main(int argc, char **argv)
 {
   int N = 25600;
   int NBLOCKS = 13;
-  int NTHREADS = 64; // divisible by 32
+  int NTHREADS = 128; // divisible by 32
 
   if ( argc >= 2 ) {
     N = atoi(argv[1]);
   }
-  bool done = false;
-  while ( ! done ) {
-    NBLOCKS=std::max(1,int(N/NTHREADS/50.0));
-    if ( NBLOCKS > 13 ) // this many SMX on K20
-      NTHREADS *= 2;
-    else
-      done = true;
-    if ( NTHREADS == 512 ) 
-      done = true;
-    float mat_per_thread = 1.0*N/(NBLOCKS*NTHREADS);
-    printf("%5.2f, %d %d %i\n",mat_per_thread, NBLOCKS, NTHREADS, done);
-  }
-  printf("N=%d NBLOCKS= %d  NTHREADS= %d mat per thread=%5.2f\n", N, NBLOCKS, NTHREADS, 1.0*N/(NBLOCKS*NTHREADS));
 
   int num_devices, device;
   CUDA_SAFE_CALL(cudaGetDeviceCount(&num_devices));
@@ -293,6 +280,22 @@ int main(int argc, char **argv)
   } // if the size needs increasing
   printf("Current size: %5.0f kB\n", curSize/1024.);
 
+  // Launch heuristics API
+  int blockSize;   // The launch configurator returned block size 
+  int minGridSize; // The minimum grid size needed to achieve the 
+                   // maximum occupancy for a full device launch 
+  int gridSize;    // The actual grid size needed, based on input size 
+
+  cudaOccupancyMaxPotentialBlockSize( &minGridSize, &blockSize, 
+                                      smallMatrix<float, DIM1, DIM2, DIM3>,
+				      0, N); 
+  // Round up according to array size 
+  gridSize = (N + blockSize - 1) / blockSize; 
+  printf("blockSize = %d, gridSize = %d\n", blockSize, gridSize);
+  printf("N=%d NBLOCKS= %d  NTHREADS= %d mat per thread=%5.2f\n", N, gridSize, 
+	 blockSize, 1.0*N/(gridSize*blockSize));
+  // 
+
   // fill matrices with random data
   float *mres = new float[nmatrixres];
   float *mres_gpu = new float[nmatrixres];
@@ -335,7 +338,7 @@ int main(int argc, char **argv)
   // GPU
   // result is now in d_fres
   for ( int i = 0; i < 10; ++i ) 
-    smallMatrix<float, DIM1, DIM2, DIM3><<<NBLOCKS,NTHREADS>>>(d_f1,d_f2, d_fres,N );
+    smallMatrix<float, DIM1, DIM2, DIM3><<<gridSize,blockSize>>>(d_f1,d_f2, d_fres,N );
 
   const int CPU_MATRIPLEX_SIZE = 8; // sizeof vector register/sizeof(float)
   Matriplex::MPlex<float, DIM1, DIM2, CPU_MATRIPLEX_SIZE> h_matrices1;
