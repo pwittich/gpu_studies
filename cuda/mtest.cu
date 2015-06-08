@@ -2,15 +2,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
-#include <vector>
+//#include <vector>
 #include <algorithm>
 #include <numeric>
 #include <list>
 #include <iostream>
 
-#include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
-#include <thrust/fill.h>
+// #include <thrust/host_vector.h>
+// #include <thrust/device_vector.h>
+// #include <thrust/fill.h>
 
 #include "Matriplex.h"
 
@@ -54,7 +54,7 @@ static __device__ __forceinline__ unsigned int laneId()
 #else
     return 0;
 #endif
-}
+} 
 
 template<typename T, idx_t DIM1, idx_t DIM2, idx_t DIM3>
 __global__ void smallMatrix(const T * __restrict__ d1, 
@@ -124,7 +124,8 @@ __global__ void smallMatrix(const T * __restrict__ d1,
 }
 
 
-// this acts on a per-warp basis
+// this acts on a per-warp basis. 
+// this does not work 
 template<typename T>
 void 
 __device__ shuffle_scatter(const T * __restrict__ in,
@@ -141,8 +142,8 @@ __device__ shuffle_scatter(const T * __restrict__ in,
     const int srcInd  = dest%N;
     // int __shfl(int var, int srcLane, int width=warpSize);
     out[i] = __shfl(in[i], srcLane);
-    printf("thread %d: dest = %d, srcLane = %d, srcInd = %d (i=%d) val=%f\n", laneid, dest,
-	   srcLane, srcInd,i, out[i]);
+    printf("thread %d: dest = %d, srcLane = %d, srcInd = %d (i=%d) val=%f\n", laneid, 
+	   dest, srcLane, srcInd,i, out[i]);
   }
   
 }
@@ -221,22 +222,24 @@ int main(int argc, char **argv)
 {
   int N = 25600;
   int NBLOCKS = 13;
-  int NTHREADS = 128; // divisible by 32
+  int NTHREADS = 64; // divisible by 32
 
   if ( argc >= 2 ) {
     N = atoi(argv[1]);
   }
   bool done = false;
   while ( ! done ) {
-    NBLOCKS=int(N/NTHREADS/10);
-    if ( NBLOCKS > 25 ) 
+    NBLOCKS=std::max(1,int(N/NTHREADS/50.0));
+    if ( NBLOCKS > 13 ) // this many SMX on K20
       NTHREADS *= 2;
     else
       done = true;
-    if ( NTHREADS == 1024 ) 
+    if ( NTHREADS == 512 ) 
       done = true;
+    float mat_per_thread = 1.0*N/(NBLOCKS*NTHREADS);
+    printf("%5.2f, %d %d %i\n",mat_per_thread, NBLOCKS, NTHREADS, done);
   }
-  printf("N=%d, NBLOCKS = %d , NTHREADS = %d\n", N, NBLOCKS, NTHREADS);
+  printf("N=%d NBLOCKS= %d  NTHREADS= %d mat per thread=%5.2f\n", N, NBLOCKS, NTHREADS, 1.0*N/(NBLOCKS*NTHREADS));
 
   int num_devices, device;
   CUDA_SAFE_CALL(cudaGetDeviceCount(&num_devices));
@@ -276,16 +279,18 @@ int main(int argc, char **argv)
   size_t curSize = 0;
   cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
   size_t setSize = sizeof(float)*(nmatrix1+nmatrix2+nmatrixres);
-  cudaError_t err = cudaDeviceSetLimit(cudaLimitMallocHeapSize, setSize);
-  if ( err != cudaSuccess ) {
-    printf("failed to set heap size to %d\n", curSize);
-    return 1;
-  }
-  err = cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
-  if ( err != cudaSuccess ) {
-    printf("failed to get heap size.\n");
-    return 1;
-  }
+  if ( curSize < setSize ) {
+    cudaError_t err = cudaDeviceSetLimit(cudaLimitMallocHeapSize, setSize);
+    if ( err != cudaSuccess ) {
+      printf("failed to set heap size to %d\n", curSize);
+      return 1;
+    }
+    err = cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
+    if ( err != cudaSuccess ) {
+      printf("failed to get heap size.\n");
+      return 1;
+    }
+  } // if the size needs increasing
   printf("Current size: %5.0f kB\n", curSize/1024.);
 
   // fill matrices with random data
@@ -294,18 +299,12 @@ int main(int argc, char **argv)
   memset(mres, 0,nmatrixres*sizeof(float));
   memset(mres_gpu, 0,nmatrixres*sizeof(float));
 
-
-
-  //cudaDeviceSynchronize();
-
   // these vectors hold the pre-matriplex matrices
-  // float *h_f1 = new float[nmatrix1];
-  // float *h_f2 = new float[nmatrix2];
 
   float *h_f1 = 0;
   float *h_f2 = 0;
-  cudaMallocHost(&h_f1, nmatrix1*sizeof(float));
-  cudaMallocHost(&h_f2, nmatrix2*sizeof(float));
+  cudaMallocHost(&h_f1, (nmatrix1+nmatrix2)*sizeof(float));
+  h_f2 = h_f1 + nmatrix1;
 
 
 
@@ -314,15 +313,11 @@ int main(int argc, char **argv)
   float *d_f2 = 0;
   float *d_fres = 0;
 
-  cudaMalloc(&d_f1, nmatrix1*sizeof(float));
-  cudaMalloc(&d_f2, nmatrix2*sizeof(float));
+  cudaMalloc(&d_f1, (nmatrix1+nmatrix2)*sizeof(float));
+  d_f2 = d_f1 + nmatrix1;
   cudaMalloc(&d_fres, nmatrixres*sizeof(float));
 
-  
-
   srand(123213UL);
-
-
 
   for ( int i = 0; i < nmatrix1; ++i ) {
     h_f1[i] = rand()*20./RAND_MAX;
@@ -332,13 +327,10 @@ int main(int argc, char **argv)
   }
 
 
-
-
-
   // copy to GPU
   printf("copying to GPU .... \n");
-  cudaMemcpyAsync(d_f1, h_f1, sizeof(float)*nmatrix1, cudaMemcpyHostToDevice);
-  cudaMemcpyAsync(d_f2, h_f2, sizeof(float)*nmatrix2, cudaMemcpyHostToDevice);
+  // batched single copy
+  cudaMemcpyAsync(d_f1, h_f1, sizeof(float)*(nmatrix1+nmatrix2), cudaMemcpyHostToDevice);
 
   // GPU
   // result is now in d_fres
