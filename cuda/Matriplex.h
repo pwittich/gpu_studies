@@ -128,12 +128,13 @@ namespace Matriplex
 	       }
 
 	     //#pragma omp simd collapse(2)
+#pragma  ivdep
 	     for (idx_t k = 0; k < D2; ++k)
 	       {
 		 const idx_t iko = N * (i * D2 + k);
 		 const idx_t kjo = N * (k * D3 + j);
 
-#pragma simd
+#pragma ivdep
 		 for (idx_t n = 0; n < N; ++n)
 		   {
 		     // C.fArray[i, j, n] += A.fArray[i, k, n] * B.fArray[k, j, n];
