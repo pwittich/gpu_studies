@@ -74,12 +74,16 @@ __global__ void smallMatrix(const T * __restrict__ d1,
     T mat2[DIM2*DIM3];
   
     int pos = gi*DIM1*DIM2;
+#pragma unroll 
     for ( int i = 0; i < DIM1*DIM2; ++i ) {
       mat1[i] = d1[pos++];
+      //pos += 32;
     }
     pos = gi*DIM2*DIM3;
+#pragma unroll 
     for ( int i = 0; i < DIM2*DIM3; ++i ) {
       mat2[i] = d2[pos++];
+      //pos += 32;
     }
 
     // do multiplication
@@ -221,13 +225,12 @@ __global__ void matrixkern(const T * __restrict__ d1,
 int main(int argc, char **argv)
 {
   int N = 25600;
-  int NBLOCKS = 13;
-  int NTHREADS = 128; // divisible by 32
 
   if ( argc >= 2 ) {
     N = atoi(argv[1]);
   }
 
+  // Choose the best CUDA device 
   int num_devices, device;
   CUDA_SAFE_CALL(cudaGetDeviceCount(&num_devices));
   printf("This many devices: %d\n", num_devices);
@@ -252,9 +255,9 @@ int main(int argc, char **argv)
 
   // set the memory limits on the device
 
-  const int DIM1 = 3;
-  const int DIM2 = 4;
-  const int DIM3 = 5;
+  const int DIM1 = 6;
+  const int DIM2 = 6;
+  const int DIM3 = 6;
   //const int N = 103-6;
   const int nmatrix1 = DIM1*DIM2*N;
   const int nmatrix2 = DIM2*DIM3*N;
@@ -262,6 +265,7 @@ int main(int argc, char **argv)
   printf("Size of memory required: %5.1f kB\n",
 	 sizeof(float)*(nmatrix1+nmatrix2+nmatrixres)/1024.);
 
+  // Configure the GPU 
   // get the heap size
   size_t curSize = 0;
   cudaDeviceGetLimit(&curSize, cudaLimitMallocHeapSize);
@@ -280,6 +284,7 @@ int main(int argc, char **argv)
   } // if the size needs increasing
   printf("Current size: %5.0f kB\n", curSize/1024.);
 
+  // Determine block and Grid Sizes
   // Launch heuristics API
   int blockSize;   // The launch configurator returned block size 
   int minGridSize; // The minimum grid size needed to achieve the 
@@ -287,15 +292,19 @@ int main(int argc, char **argv)
   int gridSize;    // The actual grid size needed, based on input size 
 
   cudaOccupancyMaxPotentialBlockSize( &minGridSize, &blockSize, 
-                                      smallMatrix<float, DIM1, DIM2, DIM3>,
-				      0, N); 
+                                      (smallMatrix<float, DIM1, DIM2, DIM3>),
+				       0, 0); 
   // Round up according to array size 
   gridSize = (N + blockSize - 1) / blockSize; 
-  printf("blockSize = %d, gridSize = %d\n", blockSize, gridSize);
+  //gridSize = minGridSize;
+  printf("blockSize = %d, gridSize = %d, minGridSize = %d\n", blockSize, gridSize,
+	 minGridSize);
   printf("N=%d NBLOCKS= %d  NTHREADS= %d mat per thread=%5.2f\n", N, gridSize, 
 	 blockSize, 1.0*N/(gridSize*blockSize));
   // 
 
+
+  // Generate the data needed
   // fill matrices with random data
   float *mres = new float[nmatrixres];
   float *mres_gpu = new float[nmatrixres];
@@ -315,10 +324,9 @@ int main(int argc, char **argv)
   float *d_f1 = 0;
   float *d_f2 = 0;
   float *d_fres = 0;
-
-  cudaMalloc(&d_f1, (nmatrix1+nmatrix2)*sizeof(float));
+  cudaMalloc(&d_f1, (nmatrix1+nmatrix2+nmatrixres)*sizeof(float));
   d_f2 = d_f1 + nmatrix1;
-  cudaMalloc(&d_fres, nmatrixres*sizeof(float));
+  d_fres = d_f2 + nmatrix2;				      
 
   srand(123213UL);
 
@@ -402,6 +410,9 @@ int main(int argc, char **argv)
 
   delete [] mres;
   delete [] mres_gpu;
+
+  cudaFree(h_f1);
+  cudaFree(d_f1);
   
   return mismatches;
 }
