@@ -32,7 +32,7 @@ CXXFLAGS = $(INCFLAG) -std=c++11
 %.o: %.cu
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
-all: nbody test nbody_nothrust mtest
+all: nbody nbody_nothrust mtest
 
 mtest: mtest.o
 	$(NVCC) $(NVCCFLAGS) $^ -o $@ 
@@ -57,7 +57,7 @@ depend:
 
 # DO NOT DELETE
 
-mtest.o: Matriplex.h
+mtest.o: Time.hh Matriplex.h
 nbody.o: timer.h cuda_math.h
 nbody_nothrust.o: /usr/include/sys/stat.h /usr/include/features.h
 nbody_nothrust.o: /usr/include/sys/cdefs.h /usr/include/bits/wordsize.h
@@ -79,7 +79,7 @@ nbody_nothrust.o: /usr/include/math.h /usr/include/bits/huge_val.h
 nbody_nothrust.o: /usr/include/bits/huge_valf.h /usr/include/bits/huge_vall.h
 nbody_nothrust.o: /usr/include/bits/inf.h /usr/include/bits/nan.h
 nbody_nothrust.o: /usr/include/bits/mathdef.h /usr/include/bits/mathcalls.h
-nbody_nothrust.o: CudaMath.h /usr/include/sys/time.h /usr/include/signal.h
+nbody_nothrust.o: /usr/include/sys/time.h /usr/include/signal.h
 nbody_nothrust.o: /usr/include/bits/signum.h /usr/include/bits/siginfo.h
 nbody_nothrust.o: /usr/include/bits/sigaction.h
 nbody_nothrust.o: /usr/include/bits/sigcontext.h /usr/include/bits/sigstack.h

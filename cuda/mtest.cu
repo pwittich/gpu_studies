@@ -2,16 +2,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
-//#include <vector>
 #include <algorithm>
 #include <numeric>
 #include <list>
 #include <iostream>
 
-// #include <thrust/host_vector.h>
-// #include <thrust/device_vector.h>
-// #include <thrust/fill.h>
-
+#include "Time.hh"
 #include "Matriplex.h"
 
 using namespace Matriplex;
@@ -359,6 +355,8 @@ int main(int argc, char **argv)
   // loop over 
   const int niter = (N/CPU_MATRIPLEX_SIZE) + ((N%CPU_MATRIPLEX_SIZE)?1:0);
   printf("niter = %d %d %d\n", niter, N, CPU_MATRIPLEX_SIZE);
+  // TIME START -- CPU
+  timepoint t0(now());
   for ( int ii = 0; ii < niter; ++ii ) {
 
     // convert random data to matriplex
@@ -379,7 +377,12 @@ int main(int argc, char **argv)
       h_result.CopyOut(i, mres+pos*(h_result.kSize));
     } 
   } // loop over all matrices, CPU
-
+  tick t1 = delta(t0);
+  std::cout << "CPU delta t = " 
+	    << std::chrono::duration_cast<std::chrono::microseconds>(t1).count() 
+	    << " us"
+	    << std::endl;
+  // TIME END- CPU
 
   //cudaThreadSynchronize();
   // check for error. this catches a kernel launch error
