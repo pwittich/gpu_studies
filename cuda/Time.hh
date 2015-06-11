@@ -5,12 +5,12 @@
 typedef std::chrono::time_point<std::chrono::high_resolution_clock> timepoint;
 typedef std::chrono::duration<double> tick;
 
-static timepoint __forceinline__ now()
+static timepoint  now()
 {
   return std::chrono::system_clock::now();
 }
 
-static tick __forceinline__ delta(timepoint& t0)
+static tick  delta(timepoint& t0)
 {
   timepoint t1(now());
   tick d = t1 - t0;

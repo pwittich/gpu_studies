@@ -7,6 +7,7 @@ nmat = 1
 
 values = []
 
+# return value in us
 def convert(val):
     """ Unit conversion hack """
     lookup = { 'ns' : 1e-3, 'us' : 1, 'ms' : 1000, 's' : 1000000 }
@@ -43,9 +44,14 @@ while ( nmat < 1e8 ) :
     matches = filter(lambda x:'NBLOCKS' in x, ret)
     nblocks = int(matches[0].split()[2])
     nthreads = int(matches[0].split()[4])
-    #print nmat,tavg,tmin,htod,dtoh,nblocks,nthreads
     tper = 1.0*tavg/nmat
-    values.append([nmat,tavg,tmin,htod,dtoh, tper,nblocks,nthreads])
+    ## CPU TIME
+    matches = filter(lambda x:'CPU delta' in x, ret)
+    #print nmat,tavg,tmin,htod,dtoh,nblocks,nthreads
+    cpu_t = float(matches[0].split()[4])
+    cpu_t_per = float(matches[0].split()[4])/nmat
+
+    values.append([nmat,tavg,tmin,htod,dtoh, tper,nblocks,nthreads,cpu_t,cpu_t_per])
     convert(elem[3])
     # shutil.copyfile('final.dat','final_%s_%s.dat' % (nthreads, nblocks))
     # try:
@@ -60,9 +66,9 @@ while ( nmat < 1e8 ) :
 # print '\n\n\n\n'
 
 for v in values:
-    print "% 9d\t%8.2f\t%8.2f\t%8.2g\t%8.2g\t%8.2g\t%d\t%d" % tuple(v)
+    print "% 9d %8.2g %8.2g %8.2g %8.2g %8.2g %6d % 5d %8.2g %8.2g" % tuple(v)
     # for fv in v:
-    #     print fv, '\t',
+    #     print fv, ' ',
     # print
 
 

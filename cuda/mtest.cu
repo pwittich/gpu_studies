@@ -9,6 +9,8 @@
 
 #include "Time.hh"
 #include "Matriplex.h"
+#include <tbb/tbb.h>
+#include <tbb/task_scheduler_init.h>
 
 using namespace Matriplex;
 
@@ -345,20 +347,26 @@ int main(int argc, char **argv)
     smallMatrix<float, DIM1, DIM2, DIM3><<<gridSize,blockSize>>>(d_f1,d_f2, d_fres,N );
 
   const int CPU_MATRIPLEX_SIZE = 8; // sizeof vector register/sizeof(float)
-  Matriplex::MPlex<float, DIM1, DIM2, CPU_MATRIPLEX_SIZE> h_matrices1;
-  Matriplex::MPlex<float, DIM2, DIM3, CPU_MATRIPLEX_SIZE> h_matrices2;
-  memset(h_matrices1.fArray, 0, h_matrices1.kTotSize*sizeof(float));
-  memset(h_matrices2.fArray, 0, h_matrices2.kTotSize*sizeof(float));
-  Matriplex::Matriplex<float, DIM1, DIM3, CPU_MATRIPLEX_SIZE> h_result;
-  memset(h_result.fArray, 0, h_result.kTotSize*sizeof(float));
+  // Matriplex::MPlex<float, DIM1, DIM2, CPU_MATRIPLEX_SIZE> h_matrices1;
+  // Matriplex::MPlex<float, DIM2, DIM3, CPU_MATRIPLEX_SIZE> h_matrices2;
+  // memset(h_matrices1.fArray, 0, h_matrices1.kTotSize*sizeof(float));
+  // memset(h_matrices2.fArray, 0, h_matrices2.kTotSize*sizeof(float));
+  // Matriplex::Matriplex<float, DIM1, DIM3, CPU_MATRIPLEX_SIZE> h_result;
+  // memset(h_result.fArray, 0, h_result.kTotSize*sizeof(float));
 
+  // initialize tbb - do this before the timing
+  int n = tbb::task_scheduler_init::default_num_threads();
   // loop over 
-  const int niter = (N/CPU_MATRIPLEX_SIZE) + ((N%CPU_MATRIPLEX_SIZE)?1:0);
+  size_t niter = (N/CPU_MATRIPLEX_SIZE) + ((N%CPU_MATRIPLEX_SIZE)?1:0);
   printf("niter = %d %d %d\n", niter, N, CPU_MATRIPLEX_SIZE);
   // TIME START -- CPU
   timepoint t0(now());
-  for ( int ii = 0; ii < niter; ++ii ) {
-
+  tbb::parallel_for(size_t(0), niter, [=](size_t ii)  {
+  //for ( auto ii = 0; ii < niter; ++ii ) {
+      Matriplex::MPlex<float, DIM1, DIM2, CPU_MATRIPLEX_SIZE> h_matrices1;
+      Matriplex::MPlex<float, DIM2, DIM3, CPU_MATRIPLEX_SIZE> h_matrices2;
+      Matriplex::Matriplex<float, DIM1, DIM3, CPU_MATRIPLEX_SIZE> h_result;
+      //for ( int ii = 0; ii < niter; ++ii ) {
     // convert random data to matriplex
     int pos = CPU_MATRIPLEX_SIZE*ii;
     for ( idx_t i = 0; i < CPU_MATRIPLEX_SIZE ; ++i, ++pos ) {
@@ -376,7 +384,7 @@ int main(int argc, char **argv)
       if ( pos == N ) break;
       h_result.CopyOut(i, mres+pos*(h_result.kSize));
     } 
-  } // loop over all matrices, CPU
+    }); // loop over all matrices, CPU
   tick t1 = delta(t0);
   std::cout << "CPU delta t = " 
 	    << std::chrono::duration_cast<std::chrono::microseconds>(t1).count() 
@@ -403,8 +411,8 @@ int main(int argc, char **argv)
   for (int i = 0;i<nmatrixres; ++i ) {
     if  (fabs(mres[i]-mres_gpu[i])>1e-3 ) {
       ++mismatches;
-      printf("%d: (%d) %8.3f\t%8.3f %s\n", i, int(i/h_result.kSize),mres[i], 
-	     mres_gpu[i], (fabs(mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
+      printf("%d: (%d) %8.3f\t%8.3f %s\n", i, int(i/DIM1*DIM3),mres[i], 
+       	     mres_gpu[i], (fabs(mres[i]-mres_gpu[i])<1.0e-3)?"":"<<<");
     }
   }
   if ( mismatches)

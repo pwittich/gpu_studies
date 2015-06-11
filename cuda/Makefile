@@ -2,7 +2,7 @@
 #CUDADIR=/opt/cuda
 #CUDA_SDK_DIR=/opt/cuda/sdk
 
-INCFLAG=-I$(CUDADIR)/include # -I$(CUDA_SDK_DIR)/C/common/inc -I..
+INCFLAG=-I/home/wittich/src/tbb43_20150424oss/include -I$(CUDADIR)/include # -I$(CUDA_SDK_DIR)/C/common/inc -I..
 
 
 # CUDA code generation flags
@@ -22,7 +22,7 @@ NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std
 
 NVCCFLAGS += -Xcompiler="-ftree-vectorizer-verbose=4 -ftree-vectorize "#-fopt-info-vec-missed"
 
-CXXFLAGS = $(INCFLAG) -std=c++11
+CXXFLAGS =  $(INCFLAG) -std=c++11
 
 
 #LIBS=-L/home/wittich/src/cudpp_install_2.0/lib -lcudpp
@@ -35,7 +35,10 @@ CXXFLAGS = $(INCFLAG) -std=c++11
 all: nbody nbody_nothrust mtest
 
 mtest: mtest.o
-	$(NVCC) $(NVCCFLAGS) $^ -o $@ 
+	$(NVCC) $(NVCCFLAGS) -ltbb $^ -o $@ 
+
+mtest2: mtest2.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ 
 
 
 nbody: nbody.o
