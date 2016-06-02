@@ -2,7 +2,7 @@
 #CUDADIR=/opt/cuda
 #CUDA_SDK_DIR=/opt/cuda/sdk
 
-INCFLAG=-I/home/wittich/src/tbb43_20150424oss/include -I$(CUDADIR)/include # -I$(CUDA_SDK_DIR)/C/common/inc -I..
+INCFLAG=-I. -I/home/wittich/src/tbb43_20150424oss/include -I$(CUDADIR)/include # -I$(CUDA_SDK_DIR)/C/common/inc -I..
 
 
 # CUDA code generation flags
@@ -32,7 +32,7 @@ CXXFLAGS =  $(INCFLAG) -std=c++11
 %.o: %.cu
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
-all: nbody nbody_nothrust mtest
+all: nbody nbody_nothrust mtest stest
 
 mtest: mtest.o
 	$(NVCC) $(NVCCFLAGS) -ltbb $^ -o $@ 
@@ -51,6 +51,11 @@ test: test.o
 m2: m2.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ 
 
+
+ROOTF="-I$(shell root-config --incdir)"
+NVCCFLAGS += $(ROOTF)
+stest: stest.o
+	$(NVCC) $(NVCCFLAGS)  -ltbb $^ -o $@ 
 
 clean:
 	$(RM) *.o *~ 

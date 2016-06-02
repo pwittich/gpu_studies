@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=-O3 -I ${CUDADIR}/include  -std=gnu99
 CXXFLAGS=-O3 -I ${CUDADIR}/include 
-OPENCLLIBS=-L/nfs/opt/cuda/lib -lOpenCL
+OPENCLLIBS=-L${CUDADIR}/lib64 -lOpenCL
 LIBS=$(OPENCLLIBS) -lm
 
 all: nbody_simple nbody nbody2

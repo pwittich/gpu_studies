@@ -363,6 +363,8 @@ int main(int argc, char **argv)
   timepoint t0(now());
   tbb::parallel_for(size_t(0), niter, [=](size_t ii)  {
   //for ( auto ii = 0; ii < niter; ++ii ) {
+      // these are constructed within the loop due to problems with the capture of the lambda 
+      // function.
       Matriplex::MPlex<float, DIM1, DIM2, CPU_MATRIPLEX_SIZE> h_matrices1;
       Matriplex::MPlex<float, DIM2, DIM3, CPU_MATRIPLEX_SIZE> h_matrices2;
       Matriplex::Matriplex<float, DIM1, DIM3, CPU_MATRIPLEX_SIZE> h_result;

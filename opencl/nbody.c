@@ -11,6 +11,8 @@
 //#include <mach/mach_time.h>
 #include <math.h>
 
+#include <strings.h>
+
 #include <signal.h>
 static int saw_sigint = 0;
 void siginthandler(int signal)
