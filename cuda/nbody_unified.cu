@@ -31,7 +31,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 
 
 
-#define NBLOCKS 32
+#define NBLOCKS 128
 #define NTHREADS 128
 #define OUTPUT_PATH "/var/tmp/wittich"
 
@@ -54,8 +54,6 @@ __global__ void nbody_kern(float4 * __restrict__ pos_old,
   float4 p = pos_old[gti];
   float4 v = vel[gti];
   float4 a = make_float4(0.0f,0.0f,0.0f,0.0f);
-  //const int ti = threadIdx.x;
-  //__shared__ float4 pblock[NTHREADS];
   // this makes the shared block external with size configurable at runtime
   extern __shared__ float4 pblock[];
 
@@ -73,7 +71,6 @@ __global__ void nbody_kern(float4 * __restrict__ pos_old,
       // d is direction btw two but not a unit vector
       // extra powers of invr above take care of length
       a += f*d; /* Accumulate acceleration */
-      //++j;
     }
 
     __syncthreads(); // sync again before updating cache to next block
@@ -117,7 +114,7 @@ main(int argc, char **argv)
 
   signal(SIGINT, siginthandler);
 
-  int nthreads = NTHREADS;
+  int nthreads = NTHREADS; // this defines the size of the shared memory
   int nblocks = NBLOCKS;
 
   if ( argc == 3 ) {
@@ -143,15 +140,11 @@ main(int argc, char **argv)
   float4 *pos1 = 0;
   float4 *pos2 = 0;
   float4 *vel  = 0 ;
-  // create arrays -- device
-  float4 *pos1_d = 0;
-  float4 *pos2_d = 0;
-  float4 *vel_d  = 0 ;
   int nstep_start = 0;
   if ( argc == 1||1 ) { // turn off reading in
-    pos1 = (float4*)malloc(sizeof(float4)*nparticle);
-    pos2 = (float4*)malloc(sizeof(float4)*nparticle);
-    vel  = (float4*)malloc(sizeof(float4)*nparticle);
+    cudaMallocManaged(&pos1, sizeof(float4)*nparticle);
+    cudaMallocManaged(&pos2, sizeof(float4)*nparticle);
+    cudaMallocManaged(&vel, sizeof(float4)*nparticle);
 
     srand(42137377L);
 
@@ -210,7 +203,7 @@ main(int argc, char **argv)
     fprintf(stderr, "reading from file %s\n", argv[1]);
     readstate(argv[1], &pos1, &vel, &nparticle, &nstep_start);
     fprintf(stderr, "Found %d particles\n", nparticle);
-    pos2 = (float4*)malloc(sizeof(float4)*nparticle);
+    cudaMallocManaged(&pos2, sizeof(float4)*nparticle);
 
   }
 #ifdef DUMP
@@ -246,19 +239,6 @@ main(int argc, char **argv)
   printf("# Running on device %d (name %s)\n", max_device, best_prop.name);
 
 
-  CUDA_SAFE_CALL(cudaMalloc((void **) &pos1_d, sizeof(float4)*nparticle));   // Allocate array on device
-  CUDA_SAFE_CALL(cudaMalloc((void **) &pos2_d, sizeof(float4)*nparticle));   // Allocate array on device
-  CUDA_SAFE_CALL(cudaMalloc((void **) &vel_d,  sizeof(float4)*nparticle));   // Allocate array on device
-  
-
-  //Fill the input array with the host allocated starting point data
-  //
-  CUDA_SAFE_CALL(cudaMemcpyAsync(pos1_d, pos1, sizeof(float4)*nparticle, cudaMemcpyHostToDevice));
-  CUDA_SAFE_CALL(cudaMemcpyAsync(pos2_d, pos2, sizeof(float4)*nparticle, cudaMemcpyHostToDevice));
-  CUDA_SAFE_CALL(cudaMemcpyAsync(vel_d,  vel,  sizeof(float4)*nparticle, cudaMemcpyHostToDevice));
-
-  // just to be sure I see what's going on
-  bzero(pos1,sizeof(float4)*nparticle);
 
 
 
@@ -269,36 +249,34 @@ main(int argc, char **argv)
   double tavg_0 = 0, tsqu_0 = 0;
 
   int iter = 0;
-  for ( ; iter < nstep;++iter) { // outer loop over steps
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  for ( ; iter < nstep;++iter) {
     if ( saw_sigint != 0 ) {
       printf("Saw SIGINT, aborting on loop entry  %d.\n", iter);
       break;
     }
 
     printf("iter=%d of %d\n", iter, nstep);
-    cudaEvent_t start, stop;
     float t;
 
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
 
     cudaEventRecord( start, 0 );
     for (int k = 0; k < nburst; k++) {
       if ( k%2==0 ) {
 	// third argument is the size of the shared memory space
-	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos1_d,
-								 pos2_d,vel_d);
+	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos1,
+								 pos2,vel);
       } else {
-	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos2_d,
-								 pos1_d,vel_d);
+	nbody_kern<<<nblocks,nthreads,nthreads*sizeof(float4)>>>(pos2,
+								 pos1,vel);
       }
     } // nburst
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize( stop );
 
     cudaEventElapsedTime( &t, start, stop );
-    cudaEventDestroy( start );
-    cudaEventDestroy( stop );
 
     cudaThreadSynchronize();
     
@@ -314,20 +292,15 @@ main(int argc, char **argv)
     tavg_0 += t/nburst;
     tsqu_0 += t*t/(nburst*nburst);
 
-    //Read back the results that were computed on the device
-    //
-    CUDA_SAFE_CALL(cudaMemcpyAsync(pos1, pos1_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
-    CUDA_SAFE_CALL(cudaMemcpyAsync(pos2, pos2_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
 
+    cudaDeviceSynchronize(); // need this to get the memory synched on the CPU
     // do this on the device?
     if ( iter%25==0 ) {    
-
 
       // float4 ptotal = thrust::reduce(d_vel.begin(), d_vel.end(), make_float4(0.,0.,0.,0.),
       // 				     f2());
 
       // get velocities
-      CUDA_SAFE_CALL(cudaMemcpy(vel, vel_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
       printf("End:   vel %d x=%f, y=%f, z=%f, m=%f\n",
       	     which, vel[which].x, vel[which].y, vel[which].z, vel[which].w);
 
@@ -359,9 +332,10 @@ main(int argc, char **argv)
     sprintf(fname,  "%s/test_%d.bmp", OUTPUT_PATH , iter+nstep_start);
     writeDat(fname, (void*)pos1, nparticle);
 #endif // DUMP
-  }
-  // need this for the final dump
-  CUDA_SAFE_CALL(cudaMemcpy(vel, vel_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
+  } // outer loop over steps
+
+  cudaEventDestroy( start );
+  cudaEventDestroy( stop );
 
 
   double tavg = tavg_0/(iter);
@@ -371,15 +345,12 @@ main(int argc, char **argv)
 #ifdef DUMP
   savestate("current.dat", pos1, vel, nparticle, iter+nstep_start);
 #else // DUMP 
-  savestate("final_copies.dat", pos1, vel, nparticle, iter+nstep_start);
+  savestate("final_unified.dat", pos1, vel, nparticle, iter+nstep_start);
 #endif // DUMP
 
-  free(pos1);
-  free(pos2); 
-  free(vel);
-  cudaFree(pos1_d);
-  cudaFree(pos2_d); 
-  cudaFree(vel_d);
+  cudaFree(pos1);
+  cudaFree(pos2); 
+  cudaFree(vel);
 
 
   return 0;

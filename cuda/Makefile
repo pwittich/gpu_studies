@@ -46,6 +46,9 @@ nbody: nbody.o
 nbody_nothrust: nbody_nothrust.o
 	$(NVCC) $(NVCCFLAGS) $^ -o $@ 
 
+nbody_unified: nbody_unified.o
+	$(NVCC) $(NVCCFLAGS) $^ -o $@ 
+
 test: test.o
 	$(NVCC) $^ -o $@ 
 m2: m2.o
