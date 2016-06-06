@@ -269,6 +269,9 @@ main(int argc, char **argv)
   double tavg_0 = 0, tsqu_0 = 0;
 
   int iter = 0;
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
   for ( ; iter < nstep;++iter) { // outer loop over steps
     if ( saw_sigint != 0 ) {
       printf("Saw SIGINT, aborting on loop entry  %d.\n", iter);
@@ -276,11 +279,8 @@ main(int argc, char **argv)
     }
 
     printf("iter=%d of %d\n", iter, nstep);
-    cudaEvent_t start, stop;
     float t;
 
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
 
     cudaEventRecord( start, 0 );
     for (int k = 0; k < nburst; k++) {
@@ -297,8 +297,6 @@ main(int argc, char **argv)
     cudaEventSynchronize( stop );
 
     cudaEventElapsedTime( &t, start, stop );
-    cudaEventDestroy( start );
-    cudaEventDestroy( stop );
 
     cudaThreadSynchronize();
     
@@ -360,6 +358,10 @@ main(int argc, char **argv)
     writeDat(fname, (void*)pos1, nparticle);
 #endif // DUMP
   }
+
+  cudaEventDestroy( start );
+  cudaEventDestroy( stop );
+
   // need this for the final dump
   CUDA_SAFE_CALL(cudaMemcpy(vel, vel_d, sizeof(float4)*nparticle, cudaMemcpyDeviceToHost));
 

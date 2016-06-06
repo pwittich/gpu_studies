@@ -6,9 +6,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda.h>
-#include <math.h>
+#include <cmath>
 //#include <cutil.h>
 //#include <cutil_math.h>
+#include <reduce.h>
 
 #include "CudaMath.h"
 
@@ -35,13 +36,48 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 #define NTHREADS 128
 #define OUTPUT_PATH "/var/tmp/wittich"
 
-__global__ void nbody_kern(float4 * __restrict__ pos_old,
+// https://devblogs.nvidia.com/parallelforall/faster-parallel-reductions-kepler/
+__inline__ __device__
+float4 warpReduceSum(float4 val) {
+  for (int offset = warpSize/2; offset > 0; offset /= 2) {
+    val.x += __shfl_down(val.x, offset);
+    val.y += __shfl_down(val.y, offset);
+    val.z += __shfl_down(val.z, offset);
+    // ignore 4th part of the float4
+  }
+  return val;
+}
+
+// N: total number of particles
+// vel: input velocities
+// pos: input positions and masses (need the masses)
+// ptot: total momentum -- output
+__global__ void totalPCalc(float4 *vel, float4 *pos, float4* ptot, int N)
+{
+  float4 sum = make_float4(0.f,0.f,0.f,0.f);
+  for(int i = blockIdx.x * blockDim.x + threadIdx.x; 
+      i < N; 
+      i += blockDim.x * gridDim.x) {
+    sum += vel[i]*pos[i].w;
+  }
+  sum = warpReduceSum(sum);
+  if (threadIdx.x == 0) {
+    atomicAdd(&(ptot->x), sum.x);
+    atomicAdd(&(ptot->y), sum.y);
+    atomicAdd(&(ptot->z), sum.z);
+  }
+}
+
+// this should put this in constant memory - not sure if I can tell if it does
+__constant__ float dt1(0.001f);
+__constant__ float eps(0.001f);
+__constant__ float4 dt = {.001f,.001f,.001f,0.0f};
+
+
+__global__ void nbody_kern(const float4 * __restrict__ pos_old,
 			   float4 * __restrict__ pos_new,
 			   float4 * __restrict__ vel ) 
 {
-  const float dt1 = 0.001f;
-  const float eps = 0.001f;
-  const float4 dt = make_float4(dt1,dt1,dt1,0.0f);
 
   // removing these saves a register
   //const int nt = blockDim.x;
@@ -53,7 +89,7 @@ __global__ void nbody_kern(float4 * __restrict__ pos_old,
 
   float4 p = pos_old[gti];
   float4 v = vel[gti];
-  float4 a = make_float4(0.0f,0.0f,0.0f,0.0f);
+  float4 a = {0.0f,0.0f,0.0f,0.0f};
   // this makes the shared block external with size configurable at runtime
   extern __shared__ float4 pblock[];
 
@@ -130,7 +166,7 @@ main(int argc, char **argv)
 
   int nparticle = nthreads*nblocks; 
   //int nparticle = 1024; // nice power of 2 for simplicity
-  const size_t nstep = 40;
+  const size_t nstep = 200;
   //const size_t nstep = 50;
   int nburst = 128; // sub-steps
   //int nburst = 1; // sub-steps
@@ -140,11 +176,13 @@ main(int argc, char **argv)
   float4 *pos1 = 0;
   float4 *pos2 = 0;
   float4 *vel  = 0 ;
+  float4 *ptot = 0;
   int nstep_start = 0;
   if ( argc == 1||1 ) { // turn off reading in
     cudaMallocManaged(&pos1, sizeof(float4)*nparticle);
     cudaMallocManaged(&pos2, sizeof(float4)*nparticle);
     cudaMallocManaged(&vel, sizeof(float4)*nparticle);
+    cudaMallocManaged(&ptot, sizeof(float4));
 
     srand(42137377L);
 
@@ -278,41 +316,46 @@ main(int argc, char **argv)
 
     cudaEventElapsedTime( &t, start, stop );
 
-    cudaThreadSynchronize();
-    
-    // check for error. this catches a kernel launch error
-    cudaError_t error = cudaGetLastError();
-    if(error != cudaSuccess) {
-      // print the CUDA error message and exit
-      printf("CUDA error: %s\n", cudaGetErrorString(error));
-      exit(-1);
-    }
+    // cudaThreadSynchronize();
+    // // check for error. this catches a kernel launch error
+    // cudaError_t error = cudaGetLastError();
+    // if(error != cudaSuccess) {
+    //   // print the CUDA error message and exit
+    //   printf("CUDA error: %s\n", cudaGetErrorString(error));
+    //   exit(-1);
+    // }
     
 
     tavg_0 += t/nburst;
     tsqu_0 += t*t/(nburst*nburst);
 
 
-    cudaDeviceSynchronize(); // need this to get the memory synched on the CPU
-    // do this on the device?
-    if ( iter%25==0 ) {    
 
-      // float4 ptotal = thrust::reduce(d_vel.begin(), d_vel.end(), make_float4(0.,0.,0.,0.),
-      // 				     f2());
+    // calculate total momentum
+    if ( iter%25==0 ) {    
+      *ptot = {0.f,0.f,0.f,0.f};
+      totalPCalc<<<128,15>>>(vel, pos1, ptot, nparticle);
+      cudaDeviceSynchronize(); // need this to get the memory synched on the CPU
+      float ptot1 = sqrt(ptot->x*ptot->x+ptot->y*ptot->y+ptot->z*ptot->z);
 
       // get velocities
       printf("End:   vel %d x=%f, y=%f, z=%f, m=%f\n",
       	     which, vel[which].x, vel[which].y, vel[which].z, vel[which].w);
 
-      // calculate total momentum
-      float4 ptotal = make_float4(0.,0.,0.,0.);
-      for ( int i = 0; i < nparticle; ++i ) {
-      	ptotal.x += pos1[i].w*vel[i].x;
-      	ptotal.y += pos1[i].w*vel[i].y;
-      	ptotal.z += pos1[i].w*vel[i].z;
-      }
-      float ptot = sqrt(ptotal.x*ptotal.x+ptotal.y*ptotal.y+ptotal.z*ptotal.z);
-      printf("\t\tptot = %5.3f\n", ptot);
+      // // do this on the device?
+      // float4 ptotal = make_float4(0.f,0.f,0.f,0.f);
+      // for ( int i = 0; i < nparticle; ++i ) {
+      // 	ptotal.x += pos1[i].w*vel[i].x;
+      // 	ptotal.y += pos1[i].w*vel[i].y;
+      // 	ptotal.z += pos1[i].w*vel[i].z;
+      // }
+      // float ptot = sqrt(ptotal.x*ptotal.x+ptotal.y*ptotal.y+ptotal.z*ptotal.z);
+      // printf("\t\tptot  = %5.3f\n", ptot);
+      printf("\t\tptot1 = %5.3f\n", ptot1);
+    }
+    else {
+      // already called above
+      cudaDeviceSynchronize(); // need this to get the memory synched on the CPU
     }
 
     printf("End:   particle %d x=%f, y=%f, z=%f, m=%f\n",
@@ -351,6 +394,7 @@ main(int argc, char **argv)
   cudaFree(pos1);
   cudaFree(pos2); 
   cudaFree(vel);
+  cudaFree(ptot);
 
 
   return 0;

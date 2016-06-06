@@ -27,14 +27,17 @@ GENCODE_SM352   := -gencode=arch=compute_35,code=compute_35
 #GENCODE_FLAGS   := $(GENCODE_SM10) $(GENCODE_SM13) $(GENCODE_SM20) $(GENCODE_SM30) $(GENCODE_SM35)
 #GENCODE_FLAGS   :=  $(GENCODE_SM13) $(GENCODE_SM20) $(GENCODE_SM30) $(GENCODE_SM35) $(GENCODE_SM352)
 #GENCODE_FLAGS   :=  $(GENCODE_SM35) $(GENCODE_SM32)
-GENCODE_FLAGS   :=  $(GENCODE_SM32)
+GENCODE_FLAGS   :=  $(GENCODE_SM352) 
+#GENCODE_FLAGS   :=  $(GENCODE_SM32)
 
 NVCC = nvcc
 NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11 
 #NVCCFLAGS = -G -g $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11
 
-NVCCFLAGS += -Xcompiler="-ftree-vectorizer-verbose=1 -ftree-vectorize "#-fopt-info-vec-missed"
+NVCCFLAGS += -Xcompiler="-ftree-vectorizer-verbose=5 -ftree-vectorize "#-fopt-info-vec-missed"
 NVCCFLAGS += -target-cpu-arch=${ARCH} --machine=${BITS} -ccbin=${NVCC_C}
+# this will put ptx code in the .o file
+#NVCCFLAGS +=--source-in-ptx -ptx
 
 CXXFLAGS =  $(INCFLAG) -std=c++11
 
@@ -78,7 +81,14 @@ clean:
 	$(RM) *.o *~ 
 
 depend:
-	makedepend  *.cu *.cc *.h
+	makedepend -Y  *.cu *.cc *.h
 
 # DO NOT DELETE
 
+mtest.o: Time.hh Matriplex.h
+nbody.o: timer.h cuda_math.h
+nbody_nothrust.o: CudaMath.h
+nbody_unified.o: CudaMath.h
+stest.o: Time.hh Matriplex.h SMatrix.h ./SMatrix.icc
+mtest2.o: Time.hh Matriplex.h
+SMatrix.o: ./SMatrix.icc
