@@ -34,7 +34,7 @@ NVCCFLAGS = -O3 $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std
 #NVCCFLAGS = -G -g $(INCFLAG)   $(GENCODE_FLAGS) --ptxas-options=-v -lineinfo  -std=c++11
 
 NVCCFLAGS += -Xcompiler="-ftree-vectorizer-verbose=1 -ftree-vectorize "#-fopt-info-vec-missed"
-NVCCFLAGS += -target-cpu-arch=${ARCH} --machine=${BITS} -ccbin arm-linux-gnueabihf-g++ 
+NVCCFLAGS += -target-cpu-arch=${ARCH} --machine=${BITS} -ccbin=${NVCC_C}
 
 CXXFLAGS =  $(INCFLAG) -std=c++11
 
