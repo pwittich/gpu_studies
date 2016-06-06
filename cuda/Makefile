@@ -1,12 +1,17 @@
 # to allow cross compiling on the ARM/Jetson TK1
-# ARM
-ARCH=ARM
-BITS=32
-NVCC_C=arm-linux-gnueabihf-g++
+ifdef TK1
+# Jetson TK1
+	$(info compling for TK1/ARM)
+	ARCH=ARM
+	BITS=32
+	NVCC_C=arm-linux-gnueabihf-g++
+else
 # x86
-#ARCH=x86
-#BITS=64
-#NVCC_C=g++
+	$(info compiling for non-TK1)
+	ARCH=x86
+	BITS=64
+	NVCC_C=g++
+endif
 
 INCFLAG=-I. -I/home/wittich/src/tbb43_20150424oss/include -I$(CUDAINCDIR)
 
